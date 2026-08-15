@@ -1,0 +1,58 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# ---- 工具缓存 ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ---- 配置：只提交 .env.example，真实 .env 永不进版本库 ----
+.env
+.env.*
+!.env.example
+docker/.env
+!docker/.env.example
+
+# ---- 数据本体不进 git，只保留目录占位 ----
+# 语料 147 万 chunk、原始 tar.xz 4.8 GB，进 git 就是把仓库废掉。
+# `!data/**/` 这一行不能省：git 不会进入被忽略的目录，
+# 少了它，后面那条 .gitkeep 的反选根本不会被求值，四个数据目录一个都留不下。
+data/**
+!data/**/
+!data/**/.gitkeep
+
+# ---- 模型缓存：TEI / transformers / HF 下载的权重 ----
+models/
+.cache/
+huggingface/
+*.safetensors
+*.onnx
+*.bin
+
+# ---- 评测产出：图与中间表不进 git，最终报告 .md 手动加 ----
+# 同上，`!reports/**/` 必须在前，否则 figures/ 是被忽略的目录，进不去也就留不住占位符。
+reports/**
+!reports/**/
+!reports/**/.gitkeep
+!reports/**/*.md
+
+# ---- 容器与本地运行时 ----
+volumes/
+docker/volumes/
+*.log
+logs/
+
+# ---- 编辑器 ----
+.idea/
+.vscode/
+*.swp
+.DS_Store

@@ -1,0 +1,154 @@
+# CiteQuest 本地编排：Milvus standalone（含 etcd + minio 两个必需依赖）+ TEI + API。
+#
+# 拓扑上最容易踩的一点先说清楚：**去调 TEI 的是 Milvus 容器，不是 API 容器**。
+# dense 编码走 Milvus 内置 TEI Embedding Function 的 Data-in/Data-out（决策记录 D4），
+# 写入期与检索期都由 Milvus 服务端发起 HTTP 调用。所以 endpoint 必须写成
+# compose 网络里的服务名 http://tei:80，写 localhost 会在 Milvus 容器内解析到它自己。
+#
+# 启动：docker compose -f docker/docker-compose.yml up -d
+# 依赖顺序由 healthcheck + depends_on.condition 保证，不靠 sleep。
+
+name: citequest
+
+services:
+  # --------------------------------------------------------------------------
+  # Milvus standalone 的两个必需依赖。官方 standalone 部署就是这三件套，
+  # 不是本项目额外引入的有状态服务。
+  # --------------------------------------------------------------------------
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.16
+    container_name: citequest-etcd
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    volumes:
+      - ./volumes/etcd:/etcd
+    command: >
+      etcd -advertise-client-urls=http://127.0.0.1:2379
+      -listen-client-urls http://0.0.0.0:2379
+      --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    container_name: citequest-minio
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "${MINIO_PORT:-9000}:9000"
+    volumes:
+      - ./volumes/minio:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # --------------------------------------------------------------------------
+  # Milvus 2.6.x —— 底线抬到 2.6 是硬要求：TEI Embedding Function 官方标注
+  # compatible with 2.6.x（决策记录 §4.2）。降到 2.5 整条 Data-in/Data-out 路线不成立。
+  # --------------------------------------------------------------------------
+  milvus:
+    image: milvusdb/milvus:v2.6.0
+    container_name: citequest-milvus
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      # 降本档①（决策记录 §4.2）：零召回损失，官方称 2CPU/8GB 下可多载约 4 倍数据。
+      # 默认关闭——内存放得下就不该先付性能代价。开启前先确认没在用 DiskANN，两者互斥。
+      MMAP_ENABLED: ${MILVUS_MMAP_ENABLED:-false}
+    volumes:
+      - ./volumes/milvus:/var/lib/milvus
+      # 这里**故意没有挂 milvus.yaml**。官方 yaml 无需改动即可用 TEI provider
+      # （官方片段自带注释 `enable: true # enabled by default. no action required.`）。
+      # 而且挂载会整份替换镜像内的默认配置——挂一份只写了几行的 yaml 等于把其余
+      # 几百项默认值清空，Milvus 起不来。只有 TEI 带 --api-key 需要配 credential 时
+      # 才挂，且必须以官方完整 yaml 为底改，见 docker/milvus/README.md。
+    ports:
+      - "${MILVUS_PORT:-19530}:19530"
+      - "${MILVUS_METRICS_PORT:-9091}:9091"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # --------------------------------------------------------------------------
+  # TEI：唯一的 dense 编码服务。**本项目没有任何自写推理服务**。
+  # 镜像 tag 必须按 GPU 架构选（89 = Ada Lovelace / RTX 4000 系）；
+  # compute capability < 7.5（V100 / GTX 10 系）TEI 不支持，那种机器上只能退 CPU 镜像。
+  # --------------------------------------------------------------------------
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:${TEI_IMAGE_TAG:-89-1.9}
+    container_name: citequest-tei
+    command:
+      - --model-id=${TEI_MODEL_ID:-BAAI/bge-m3}
+      # 与 Milvus TEI Function 的 max_client_batch_size=32（官方默认）对齐。
+      # 两边不一致时，大的那一边会在小的那一边直接报 413。
+      - --max-client-batch-size=32
+      - --max-batch-tokens=${TEI_MAX_BATCH_TOKENS:-16384}
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      # 权重缓存必须挂出来，否则每次重建容器都要重新下 2 GB。
+      - ./volumes/tei-cache:/data
+    ports:
+      - "${TEI_PORT:-8081}:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      start_period: 120s
+      timeout: 20s
+      retries: 5
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # --------------------------------------------------------------------------
+  # CiteQuest API。默认不随 up 启动（profile=app），因为开发时通常在宿主机跑
+  # `make serve` 连容器里的 Milvus，只有验证镜像本身时才需要它。
+  # --------------------------------------------------------------------------
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: citequest-api
+    profiles: ["app"]
+    environment:
+      CITEQUEST_LOG_FORMAT: json
+      CITEQUEST_MILVUS__URI: http://milvus:19530
+      # 这行是本文件最容易写错的一行：填的是 **Milvus 容器视角**的 TEI 地址。
+      CITEQUEST_EMBEDDING__ENDPOINT: http://tei:80
+      CITEQUEST_GENERATION__BASE_URL: ${CITEQUEST_GENERATION_BASE_URL:-http://host.docker.internal:8000/v1}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      milvus:
+        condition: service_healthy
+      tei:
+        condition: service_healthy
+    extra_hosts:
+      # 生成模型（vLLM/SGLang）通常直接跑在宿主机上，不进这套 compose。
+      - "host.docker.internal:host-gateway"

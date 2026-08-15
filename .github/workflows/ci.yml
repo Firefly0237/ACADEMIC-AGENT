@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: lint + type + unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync (frozen)
+        # --frozen：CI 只按 uv.lock 装，绝不隐式更新锁文件。
+        # 少了这个标志，CI 会在依赖发新版时静默换版本，于是「同一个 commit 昨天绿今天红」。
+        run: uv sync --frozen
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests scripts
+
+      - name: Ruff lint
+        run: uv run ruff check src tests scripts
+
+      - name: Mypy
+        run: uv run mypy
+
+      - name: Unit tests
+        # integration / e2e 需要本地 Milvus 与 TEI，CI 上按 marker 跳过。
+        run: uv run pytest tests/unit -m "not integration and not e2e" --cov --cov-report=term-missing
