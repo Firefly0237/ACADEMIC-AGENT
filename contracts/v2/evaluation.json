@@ -1,0 +1,224 @@
+{
+  "contract_version": "2.0.0-s02.1",
+  "state": "rules_frozen_actual_independent_ids_not_yet_sealed",
+  "families": [
+    {
+      "family_id": "search",
+      "function_ids": [
+        "F01"
+      ],
+      "development_count": 10,
+      "independent_count": 10
+    },
+    {
+      "family_id": "filter_pagination_update",
+      "function_ids": [
+        "F01",
+        "F11"
+      ],
+      "development_count": 10,
+      "independent_count": 10
+    },
+    {
+      "family_id": "upload_recommendation",
+      "function_ids": [
+        "F03"
+      ],
+      "development_count": 10,
+      "independent_count": 10
+    },
+    {
+      "family_id": "single_document_qa",
+      "function_ids": [
+        "F04"
+      ],
+      "development_count": 10,
+      "independent_count": 10
+    },
+    {
+      "family_id": "multidocument_summary_comparison",
+      "function_ids": [
+        "F06"
+      ],
+      "development_count": 10,
+      "independent_count": 10
+    },
+    {
+      "family_id": "claim_support_refute",
+      "function_ids": [
+        "F02"
+      ],
+      "development_count": 10,
+      "independent_count": 10
+    },
+    {
+      "family_id": "formal_proposal",
+      "function_ids": [
+        "F07",
+        "F08"
+      ],
+      "development_count": 10,
+      "independent_count": 10
+    },
+    {
+      "family_id": "multiturn_resume",
+      "function_ids": [
+        "F09",
+        "F12"
+      ],
+      "development_count": 10,
+      "independent_count": 10
+    },
+    {
+      "family_id": "library_skill_memory",
+      "function_ids": [
+        "F05",
+        "F10"
+      ],
+      "development_count": 10,
+      "independent_count": 10
+    },
+    {
+      "family_id": "security_budget_fault",
+      "function_ids": [
+        "F09",
+        "F10",
+        "F12"
+      ],
+      "development_count": 10,
+      "independent_count": 10
+    }
+  ],
+  "counts": {
+    "development": 100,
+    "independent": 100,
+    "main_repeats": 3,
+    "main_runs": 300,
+    "control_tasks": 10,
+    "control_repeats": 3,
+    "control_variants": [
+      "single_agent",
+      "without_reviewer"
+    ],
+    "control_runs": 60,
+    "application_attempts": 360,
+    "formal_research_attempt_slots": 90
+  },
+  "seeds": {
+    "corpus_candidate_order": "citequest-v2-s02-corpus-20261104",
+    "task_partition": "citequest-v2-s02-partition-20261104",
+    "human_sampling": "citequest-v2-s02-human-20261104"
+  },
+  "source_freeze": "S05 freeze application source/rights/coverage before assigning test IDs; no independent labels used to acquire corpus or tune prompts",
+  "candidate_order": "ascending SHA256(seed + newline + source_namespace + colon + native_id), raw ID stable; no outcome-based skipping",
+  "test_partition": "group by immutable work/topic cluster before deterministic seeded assignment; do not split versions from same work between dev and test",
+  "labels": [
+    "public_qrels",
+    "deterministic_fixture",
+    "weak_auto",
+    "human_scoped"
+  ],
+  "answerable_rule": "all gold evidence must be reachable in frozen scope/version/ACL; insufficient-evidence cases remain distinct",
+  "sealing": "record actual IDs, full message scripts, evidence IDs/hash, declared answerability, expected event constraints, evaluator/config hashes in S05 sealed manifest; separate development/test access and retain failed slots",
+  "multiturn": "complete ordered scripts including repeats, scope corrections, cancellation, timeouts and resume events; not a bag of independent utterances",
+  "denominators": "all assigned original positions retained; partial/failed/not_run/affected are not replaced; same task repeats do not increase independent N",
+  "metrics": {
+    "main_contract_success": {
+      "numerator": "main runs satisfying all applicable predeclared automatic contracts",
+      "denominator": "300 assigned main runs including failed and not_run",
+      "minimum": 0.8
+    },
+    "family_contract_success": {
+      "numerator": "successful assigned main runs in family",
+      "denominator": "30 assigned main runs per family",
+      "minimum": 0.7
+    },
+    "critical_contracts": {
+      "numerator": "passing applicable permission/budget/stop/mode-disclosure checks",
+      "denominator": "all applicable checks including fault fixtures",
+      "minimum": 1.0,
+      "any_known_critical_failure_blocks_affected_release": true
+    },
+    "tool_correctness": {
+      "numerator": "rule-defined selected tools, arguments semantics and dependency order correct",
+      "denominator": "all rule-evaluable tool decisions; not-evaluable count reported separately",
+      "minimum": 0.95
+    },
+    "executed_arguments_schema": {
+      "numerator": "executed tool attempts schema-valid before execution",
+      "denominator": "all actual executed tool attempts",
+      "minimum": 1.0
+    },
+    "first_model_argument_validity": {
+      "numerator": "first returned tool arguments schema-valid",
+      "denominator": "all first tool argument returns; repair does not erase failure"
+    },
+    "formal_delivery": {
+      "numerator": "actual complete school-profile deliveries",
+      "denominator": "90 research attempt slots; answerable-subset also separately reported"
+    },
+    "recall_at_20": {
+      "numerator": "relevant unique works in 20 unique paper results per query",
+      "denominator": "all native qrels for that query; macro over597; unreachable corpus => not_run",
+      "hybrid_minus_bm25_minimum": -0.02
+    },
+    "cost": {
+      "numerator": "sum all actual settled + unresolved reserved upper-bound fees including failed/review calls",
+      "denominator": "report per attempt, automatic contract success and complete formal delivery separately"
+    },
+    "latency": {
+      "numerator": "request to first sentence/full response; task active union, queue, waiting and end-to-end separately",
+      "denominator": "all assigned samples; successful p95 and failures both shown"
+    }
+  },
+  "performance_matrix": {
+    "warm": {
+      "requests_per_enabled_mode_and_scale": 200,
+      "search_p95_ms": 3000,
+      "metadata_p95_ms": 500,
+      "success_minimum": 0.99,
+      "offer_rps": 1,
+      "concurrency": 1,
+      "timeout_seconds": 10
+    },
+    "cold": {
+      "cycles": 10,
+      "claim": "process/collection readiness only; host disk cache uncontrolled"
+    },
+    "qa": {
+      "samples": 30,
+      "first_sentence_p95_seconds": 30,
+      "total_seconds": 120,
+      "success_minimum": 0.95,
+      "offer_interval_seconds": 130,
+      "concurrency": 1
+    },
+    "mixed": {
+      "windows": 3,
+      "window_seconds": 600,
+      "research_tasks_active": 1,
+      "search_offer_rps": 0.2,
+      "qa_offer_interval_seconds": 150,
+      "update_source_changes": "fixed manifest in isolated clone",
+      "qa_queued_time_in_deadline": true
+    },
+    "double_generation": "same fixed mixed schedule plus pinned old/new generation; measure memory/disk high water, reencode duration and publication lag; do not promise zero downtime"
+  },
+  "human": {
+    "optional": true,
+    "minutes_cap": 120,
+    "allocation": {
+      "s01": 25,
+      "three_proposals": 30,
+      "six_short_outputs": 30,
+      "ui_export": 15,
+      "high_risk": 10,
+      "buffer": 10
+    },
+    "actual_minutes": null,
+    "actual_state": "not_assessed",
+    "sample_selection": "S05 lock concrete IDs by seed; S15 pre-run manifest freezes first repetition of3 proposal and6 short outputs; failure keeps its position; high risk severity then stable hash order",
+    "scope": "finite fact/evidence checks only; not full report reading or expert academic validation"
+  },
+  "independent_tests_created": 0
+}

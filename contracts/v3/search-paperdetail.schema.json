@@ -1,0 +1,247 @@
+{
+  "$defs": {
+    "PaperLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "metadata_projection",
+            "native_representation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "PaperLocator",
+      "type": "object"
+    },
+    "SourceCitation": {
+      "additionalProperties": false,
+      "properties": {
+        "source_namespace": {
+          "title": "Source Namespace",
+          "type": "string"
+        },
+        "native_id": {
+          "title": "Native Id",
+          "type": "string"
+        },
+        "source_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Revision"
+        },
+        "projection_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Projection Sha256",
+          "type": "string"
+        },
+        "source_pointer_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Pointer Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_namespace",
+        "native_id",
+        "source_revision",
+        "projection_sha256",
+        "source_pointer_sha256"
+      ],
+      "title": "SourceCitation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "paper": {
+      "$ref": "#/$defs/PaperLocator"
+    },
+    "title": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Title"
+    },
+    "abstract": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Abstract"
+    },
+    "authors": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Authors"
+    },
+    "year": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Year"
+    },
+    "work_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Work Id"
+    },
+    "work_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Work Version Id"
+    },
+    "coverage": {
+      "enum": [
+        "metadata",
+        "native_literal"
+      ],
+      "title": "Coverage",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceCitation"
+    },
+    "source_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Url"
+    },
+    "pdf_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pdf Url"
+    },
+    "metadata_revision": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Metadata Revision"
+    },
+    "source_snapshot_id": {
+      "format": "uuid",
+      "title": "Source Snapshot Id",
+      "type": "string"
+    },
+    "literal_text_available": {
+      "title": "Literal Text Available",
+      "type": "boolean"
+    },
+    "coordinate_system": {
+      "enum": [
+        "unicode_codepoints_in_metadata_recipe",
+        "unicode_codepoints_in_native_literal"
+      ],
+      "title": "Coordinate System",
+      "type": "string"
+    },
+    "links_status": {
+      "enum": [
+        "source_provided",
+        "not_in_source"
+      ],
+      "title": "Links Status",
+      "type": "string"
+    },
+    "citation_status": {
+      "enum": [
+        "complete",
+        "incomplete_metadata"
+      ],
+      "title": "Citation Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "paper",
+    "title",
+    "abstract",
+    "authors",
+    "year",
+    "work_id",
+    "work_version_id",
+    "coverage",
+    "source",
+    "source_snapshot_id",
+    "literal_text_available",
+    "coordinate_system",
+    "links_status",
+    "citation_status"
+  ],
+  "title": "PaperDetail",
+  "type": "object"
+}

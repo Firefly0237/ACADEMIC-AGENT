@@ -1,0 +1,29 @@
+{
+  "workspace": "/opt/citequest",
+  "release_profile_file": "/opt/citequest/runtime/s13/release-profile.json",
+  "release_profile_sha256": "b0758db89cc4d07f9635675e13f9031c3697c89eda59ecfa468c3787df8317f9",
+  "artifact_store": {
+    "mode": "development",
+    "backend": "filesystem",
+    "store_id": "citequest-private-export-v1",
+    "spool_dir": "/tmp/citequest-export-worker-spool",
+    "maximum_object_bytes": 33554432,
+    "filesystem_root": "/var/lib/citequest/private-artifacts"
+  },
+  "schema_version": "citequest-export-process/1",
+  "business_dsn_file": "/run/secrets/business_dsn",
+  "checkpoint_dsn_file": "/run/secrets/checkpoint_dsn",
+  "memory_dsn_file": "/run/secrets/memory_dsn",
+  "cursor_key_file": "/run/secrets/cursor_key",
+  "search_config_file": "/run/config/search.json",
+  "material_config_file": "/run/config/materials.json",
+  "limits": {
+    "mode": "bounded",
+    "campaign_cash_ncny": 500000000000,
+    "campaign_prior_reserved_ncny": 4212736000,
+    "model_dispatch_concurrency": 1
+  },
+  "worker_spool": "/var/lib/citequest/export-job-spool",
+  "docker_cli": "/usr/bin/docker",
+  "docker_config": "/run/docker-config"
+}

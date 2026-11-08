@@ -1,0 +1,17 @@
+# Optional runtime mount for the existing specifically qualified native corpus.
+# This does not turn an arbitrary corpus into an admitted release.
+services:
+  web:
+    volumes:
+      - type: bind
+        source: ${CITEQUEST_CORE_NATIVE_CHAIN_FILE:?set_matching_qualified_native_identity_chain}
+        target: /opt/citequest/reports/stages/v2/S05/rights-preparation/pdf-rights-20261104T222257393069Z/source-chain-reconciliation/outcomes.jsonl
+        read_only: true
+        bind: {create_host_path: false}
+  agent:
+    volumes:
+      - type: bind
+        source: ${CITEQUEST_CORE_NATIVE_CHAIN_FILE:?set_matching_qualified_native_identity_chain}
+        target: /opt/citequest/reports/stages/v2/S05/rights-preparation/pdf-rights-20261104T222257393069Z/source-chain-reconciliation/outcomes.jsonl
+        read_only: true
+        bind: {create_host_path: false}

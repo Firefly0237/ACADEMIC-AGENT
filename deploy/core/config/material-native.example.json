@@ -1,0 +1,8 @@
+{
+  "version": "citequest-material-native/1",
+  "search_config_file": "/run/core-config/search.json",
+  "backend_proof_file": "/run/core-config/material-backend-proof.json",
+  "backend_profile_sha256": "REPLACE_WITH_ADOPTED_MATERIAL_BACKEND_PROFILE_SHA256",
+  "collection_name": "citequest_material_chunks",
+  "embedding_endpoint": "http://tei:8080/embed"
+}

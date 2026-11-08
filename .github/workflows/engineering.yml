@@ -1,0 +1,65 @@
+name: Engineering
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  governance:
+    name: governance (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Standard-library static checks only: no install, Docker, service or model call.
+      - name: Compile current Python sources
+        run: python -m compileall -q src scripts tools tests
+      - name: Verify engineering inventory
+        run: python tools/cq.py verify --json
+      - name: Test governance CLI
+        run: python -m unittest discover -s tests/engineering
+
+  web:
+    name: locked web build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Pin npm
+        run: npm install --global npm@11.6.2 --no-audit --no-fund
+      - name: Check exact toolchain
+        run: |
+          node -e 'if (process.versions.node !== "24.13.0") process.exit(1)'
+          test "$(npm --version)" = "11.6.2"
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build web
+        run: npm run build

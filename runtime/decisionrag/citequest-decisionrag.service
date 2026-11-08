@@ -1,0 +1,36 @@
+[Unit]
+Description=CiteQuest private DecisionRAG probability service
+After=network.target
+
+[Service]
+Type=simple
+User=citequest
+Group=citequest
+WorkingDirectory=/srv/citequest
+Environment=PYTHONPATH=/srv/citequest/src:/srv/citequest
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=OMP_NUM_THREADS=2
+Environment=MKL_NUM_THREADS=2
+ExecStart=/srv/citequest/.venv/bin/python -m scripts.s14.serve_decisionrag --config /etc/citequest/decisionrag-gateway.json --execute-local-cpu
+Restart=no
+TimeoutStartSec=90
+TimeoutStopSec=8
+KillMode=control-group
+MemoryMax=4G
+MemorySwapMax=0
+CPUQuota=200%
+TasksMax=48
+LimitNOFILE=256
+LimitCORE=0
+CacheDirectory=citequest/decisionrag
+ReadOnlyPaths=/srv/citequest/assets/decisionrag
+ReadWritePaths=/var/cache/citequest/decisionrag
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

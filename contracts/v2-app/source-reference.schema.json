@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://citequest.local/contracts/v2-app/source-reference/1",
+  "title": "Typed paper and material source reference",
+  "x-contract-version": "1.0.0",
+  "$defs": {
+    "MaterialSourceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "source_kind": {
+          "const": "material",
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "material_version_id": {
+          "format": "uuid",
+          "title": "Material Version Id",
+          "type": "string"
+        },
+        "file_id": {
+          "format": "uuid",
+          "title": "File Id",
+          "type": "string"
+        },
+        "raw_file_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Raw File Sha256",
+          "type": "string"
+        },
+        "representation_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Representation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_kind",
+        "material_version_id",
+        "file_id",
+        "raw_file_sha256",
+        "representation_id"
+      ],
+      "title": "MaterialSourceReference",
+      "type": "object"
+    },
+    "PaperSourceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "source_kind": {
+          "const": "paper",
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "work_version_id": {
+          "format": "uuid",
+          "title": "Work Version Id",
+          "type": "string"
+        },
+        "source_snapshot_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Snapshot Sha256",
+          "type": "string"
+        },
+        "representation_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Representation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_kind",
+        "work_version_id",
+        "source_snapshot_sha256",
+        "representation_id"
+      ],
+      "title": "PaperSourceReference",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "material": "#/$defs/MaterialSourceReference",
+      "paper": "#/$defs/PaperSourceReference"
+    },
+    "propertyName": "source_kind"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/PaperSourceReference"
+    },
+    {
+      "$ref": "#/$defs/MaterialSourceReference"
+    }
+  ]
+}

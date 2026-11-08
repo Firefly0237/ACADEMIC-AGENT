@@ -1,0 +1,53 @@
+{
+  "qa-v1": {
+    "profile_id": "qa-v1",
+    "model_alias": "deepseek-flash",
+    "model_version": "DeepSeek-V4.1-Flash-1017",
+    "model_calls": 6,
+    "tool_calls": 8,
+    "input_tokens": 24000,
+    "output_tokens": 6000,
+    "per_call_output": 1500,
+    "active_seconds": 120,
+    "cash_ncny": 15000000000,
+    "request_bytes": 24576,
+    "context_window": 1048576,
+    "input_miss_ncny": 2000,
+    "input_cached_ncny": 40,
+    "output_ncny": 8000
+  },
+  "stance-v1-r2": {
+    "profile_id": "stance-v1-r2",
+    "model_alias": "deepseek-flash",
+    "model_version": "DeepSeek-V4.1-Flash-1017",
+    "model_calls": 20,
+    "tool_calls": 24,
+    "input_tokens": 90000,
+    "output_tokens": 24000,
+    "per_call_output": 1500,
+    "active_seconds": 450,
+    "cash_ncny": 25000000000,
+    "request_bytes": 24576,
+    "context_window": 1048576,
+    "input_miss_ncny": 2000,
+    "input_cached_ncny": 40,
+    "output_ncny": 8000
+  },
+  "workset-v1": {
+    "profile_id": "workset-v1",
+    "model_alias": "deepseek-flash",
+    "model_version": "DeepSeek-V4.1-Flash-1017",
+    "model_calls": 64,
+    "tool_calls": 64,
+    "input_tokens": 256000,
+    "output_tokens": 48000,
+    "per_call_output": 1500,
+    "active_seconds": 600,
+    "cash_ncny": 50000000000,
+    "request_bytes": 24576,
+    "context_window": 1048576,
+    "input_miss_ncny": 2000,
+    "input_cached_ncny": 40,
+    "output_ncny": 8000
+  }
+}

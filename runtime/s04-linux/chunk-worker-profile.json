@@ -1,0 +1,27 @@
+{
+  "schema_version": "citequest-material-worker-profile/1",
+  "profile_id": "langchain-hf-overflow-chunk-cpu-v1-linux-cgroup-v1",
+  "environment_lock": "runtime/s04-linux/uv.lock",
+  "platform": "linux",
+  "memory_limit_bytes": 1073741824,
+  "logical_cpu_limit": 2,
+  "deadline_seconds": 30,
+  "max_processes": 1,
+  "max_log_bytes_each": 1048576,
+  "max_output_artifact_bytes": 67108864,
+  "minimum_host_available_bytes": 4294967296,
+  "parser_versions": {
+    "langchain-core": "1.7.4",
+    "langchain-text-splitters": "1.1.3",
+    "tokenizers": "0.23.3",
+    "psutil": "7.2.2"
+  },
+  "semantic_unit_maximum_tokens": 2048,
+  "semantic_unit_overlap": 0,
+  "fine_chunk_target_tokens": 512,
+  "fine_stride_tokens": 64,
+  "maximum_chunk_tokens": 2048,
+  "source_mapping": "LangChain units concatenate exactly; HF native overflow offsets map each fine window to original Unicode; retain every overflow, verify exact re-encoding and complete union coverage",
+  "security_scope": "Nonroot read-only image; no network; one input file read-only, isolated owned output; model cache read-only; no DB/model secrets. Trusted developer orchestrator has Docker control and is never the product API.",
+  "resource_mechanism": "Linux cgroup v2 memory/swap/CPU/pids; default Docker seccomp plus libseccomp no-process/exec filter; parent remaining wallclock"
+}

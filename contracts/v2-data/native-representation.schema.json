@@ -1,0 +1,283 @@
+{
+  "$defs": {
+    "NativeRecordPointer": {
+      "additionalProperties": false,
+      "properties": {
+        "source_namespace": {
+          "const": "litsearch_s2orc",
+          "title": "Source Namespace",
+          "type": "string"
+        },
+        "source_revision": {
+          "pattern": "^[a-f0-9]{40}$",
+          "title": "Source Revision",
+          "type": "string"
+        },
+        "source_snapshot_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Snapshot Sha256",
+          "type": "string"
+        },
+        "native_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Native Id",
+          "type": "string"
+        },
+        "raw_location": {
+          "$ref": "#/$defs/RawRowLocator"
+        }
+      },
+      "required": [
+        "source_namespace",
+        "source_revision",
+        "source_snapshot_sha256",
+        "native_id",
+        "raw_location"
+      ],
+      "title": "NativeRecordPointer",
+      "type": "object"
+    },
+    "NativeRepresentationDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "producer": {
+          "const": "CiteQuest source codec",
+          "default": "CiteQuest source codec",
+          "title": "Producer",
+          "type": "string"
+        },
+        "source_schema": {
+          "const": "S2ORC",
+          "default": "S2ORC",
+          "title": "Source Schema",
+          "type": "string"
+        },
+        "profile": {
+          "const": "citequest-native-s2orc-literal/1",
+          "default": "citequest-native-s2orc-literal/1",
+          "title": "Profile",
+          "type": "string"
+        },
+        "profile_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Profile Sha256",
+          "type": "string"
+        },
+        "source_pointer": {
+          "$ref": "#/$defs/NativeRecordPointer"
+        },
+        "source_pointer_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Pointer Sha256",
+          "type": "string"
+        },
+        "literal_text": {
+          "title": "Literal Text",
+          "type": "string"
+        },
+        "source_text_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Text Sha256",
+          "type": "string"
+        },
+        "original_annotation_strings": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Original Annotation Strings",
+          "type": "object"
+        },
+        "annotation_values_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Annotation Values Sha256",
+          "type": "string"
+        },
+        "annotation_spans": {
+          "additionalProperties": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "title": "Annotation Spans",
+          "type": "object"
+        },
+        "annotation_offset_type_conversions": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Annotation Offset Type Conversions",
+          "type": "object"
+        },
+        "annotation_errors": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Annotation Errors",
+          "type": "object"
+        },
+        "representation_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Representation Id",
+          "type": "string"
+        },
+        "source_text_coverage": {
+          "const": "entire_native_literal_text",
+          "default": "entire_native_literal_text",
+          "title": "Source Text Coverage",
+          "type": "string"
+        },
+        "original_PDF_coverage": {
+          "const": "not_claimed_by_native_codec",
+          "default": "not_claimed_by_native_codec",
+          "title": "Original Pdf Coverage",
+          "type": "string"
+        },
+        "can_qa": {
+          "const": false,
+          "default": false,
+          "title": "Can Qa",
+          "type": "boolean"
+        },
+        "paper_identity_verified": {
+          "const": false,
+          "default": false,
+          "title": "Paper Identity Verified",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "profile_sha256",
+        "source_pointer",
+        "source_pointer_sha256",
+        "literal_text",
+        "source_text_sha256",
+        "original_annotation_strings",
+        "annotation_values_sha256",
+        "annotation_spans",
+        "annotation_offset_type_conversions",
+        "annotation_errors",
+        "representation_id"
+      ],
+      "title": "NativeRepresentationDraft",
+      "type": "object"
+    },
+    "NativeTextLocator": {
+      "additionalProperties": false,
+      "description": "A native-source coordinate, never a frozen File/PDF Locator subtype.",
+      "properties": {
+        "kind": {
+          "const": "s2orc_native_text",
+          "default": "s2orc_native_text",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_snapshot_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Snapshot Sha256",
+          "type": "string"
+        },
+        "source_pointer_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Pointer Sha256",
+          "type": "string"
+        },
+        "source_text_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Text Sha256",
+          "type": "string"
+        },
+        "coordinate_system": {
+          "const": "unicode_codepoint",
+          "default": "unicode_codepoint",
+          "title": "Coordinate System",
+          "type": "string"
+        },
+        "char_start": {
+          "minimum": 0,
+          "title": "Char Start",
+          "type": "integer"
+        },
+        "char_end": {
+          "exclusiveMinimum": 0,
+          "title": "Char End",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_snapshot_sha256",
+        "source_pointer_sha256",
+        "source_text_sha256",
+        "char_start",
+        "char_end"
+      ],
+      "title": "NativeTextLocator",
+      "type": "object"
+    },
+    "RawRowLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Artifact Path",
+          "type": "string"
+        },
+        "artifact_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Artifact Sha256",
+          "type": "string"
+        },
+        "row_group": {
+          "minimum": 0,
+          "title": "Row Group",
+          "type": "integer"
+        },
+        "row_in_group": {
+          "minimum": 0,
+          "title": "Row In Group",
+          "type": "integer"
+        },
+        "row_ordinal": {
+          "minimum": 0,
+          "title": "Row Ordinal",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_path",
+        "artifact_sha256",
+        "row_group",
+        "row_in_group",
+        "row_ordinal"
+      ],
+      "title": "RawRowLocator",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://citequest.local/contracts/v2-data/native-representation/1",
+  "$ref": "#/$defs/NativeRepresentationDraft",
+  "title": "Whole native S2ORC literal source draft, not a PDF/File locator",
+  "x-contract-version": "0.5.0-proposal.1",
+  "x-state": "proposal_no_product_ingestion_no_paper_identity_or_QA_grant",
+  "x-runtime-invariants": "Pydantic revalidates source identity, derived annotations and literal readbacks"
+}

@@ -1,0 +1,186 @@
+{
+  "$defs": {
+    "PaperLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "metadata_projection",
+            "native_representation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "PaperLocator",
+      "type": "object"
+    },
+    "SourceCitation": {
+      "additionalProperties": false,
+      "properties": {
+        "source_namespace": {
+          "title": "Source Namespace",
+          "type": "string"
+        },
+        "native_id": {
+          "title": "Native Id",
+          "type": "string"
+        },
+        "source_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Revision"
+        },
+        "projection_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Projection Sha256",
+          "type": "string"
+        },
+        "source_pointer_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Pointer Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_namespace",
+        "native_id",
+        "source_revision",
+        "projection_sha256",
+        "source_pointer_sha256"
+      ],
+      "title": "SourceCitation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "ref_id": {
+      "title": "Ref Id",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "format": "uuid",
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "generation_id": {
+      "format": "uuid",
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "epoch": {
+      "title": "Epoch",
+      "type": "integer"
+    },
+    "source_ref": {
+      "$ref": "#/$defs/PaperLocator"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceCitation"
+    },
+    "source_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Source Sha256",
+      "type": "string"
+    },
+    "unit_text_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Unit Text Sha256",
+      "type": "string"
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    },
+    "span_start": {
+      "title": "Span Start",
+      "type": "integer"
+    },
+    "span_end": {
+      "title": "Span End",
+      "type": "integer"
+    },
+    "coordinate_system": {
+      "enum": [
+        "unicode_codepoints_in_metadata_recipe",
+        "unicode_codepoints_in_native_literal"
+      ],
+      "title": "Coordinate System",
+      "type": "string"
+    },
+    "work_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Work Id"
+    },
+    "work_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Work Version Id"
+    },
+    "coverage": {
+      "enum": [
+        "metadata",
+        "native_literal"
+      ],
+      "title": "Coverage",
+      "type": "string"
+    },
+    "search_staging_is_not_QA_permission": {
+      "const": true,
+      "default": true,
+      "title": "Search Staging Is Not Qa Permission",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ref_id",
+    "snapshot_id",
+    "generation_id",
+    "epoch",
+    "source_ref",
+    "source",
+    "source_sha256",
+    "unit_text_sha256",
+    "text",
+    "span_start",
+    "span_end",
+    "coordinate_system",
+    "work_id",
+    "work_version_id",
+    "coverage"
+  ],
+  "title": "EvidenceDTO",
+  "type": "object"
+}

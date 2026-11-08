@@ -1,0 +1,53 @@
+{
+  "limits": {
+    "mode": "bounded",
+    "owner_cash_ncny": 100000000000,
+    "project_cash_ncny": 500000000000,
+    "owner_active_tasks": 2,
+    "owner_total_tasks": 200
+  },
+  "business_dsn_file": "/run/core-secrets/agent_business_dsn",
+  "checkpoint_dsn_file": "/run/core-secrets/checkpoint_dsn",
+  "memory_dsn_file": "/run/core-secrets/memory_dsn",
+  "material_config_file": "/run/core-config/material.json",
+  "catalog_scope_policy": "task-catalog-snapshot/1",
+  "task_profile_policy": {
+    "schema_version": "new-task-profile-policy/1",
+    "release_id": "core-product-20261108-v1",
+    "profiles": [
+      {
+        "kind": "qa",
+        "profile_id": "qa-v9",
+        "review_transport_protocol": "json1",
+        "qa_execution_protocol": "grounded3",
+        "review_api_protocol": "chat-json2",
+        "validation_state": "development",
+        "structured_output_protocol": "chat-json2",
+        "answer_revision_protocol": "jsonpatch1",
+        "qa_context_protocol": "references1",
+        "qa_content_protocol": "isolated1"
+      },
+      {
+        "kind": "summary",
+        "profile_id": "workset-v7",
+        "validation_state": "development"
+      },
+      {
+        "kind": "compare",
+        "profile_id": "workset-v7",
+        "validation_state": "development"
+      },
+      {
+        "kind": "stance",
+        "profile_id": "stance-v3",
+        "review_transport_protocol": "function1",
+        "validation_state": "development"
+      },
+      {
+        "kind": "research",
+        "profile_id": "research-v5",
+        "validation_state": "development"
+      }
+    ]
+  }
+}

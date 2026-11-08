@@ -1,0 +1,123 @@
+{
+  "$defs": {
+    "PlannedClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^C[1-9][0-9]?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "anchor": {
+          "$ref": "#/$defs/UserAnchor"
+        },
+        "atomic_statement": {
+          "maxLength": 1500,
+          "minLength": 1,
+          "title": "Atomic Statement",
+          "type": "string"
+        },
+        "retrieval_question": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Retrieval Question",
+          "type": "string"
+        },
+        "requested_direction": {
+          "enum": [
+            "support",
+            "refute"
+          ],
+          "title": "Requested Direction",
+          "type": "string"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Conditions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "anchor",
+        "atomic_statement",
+        "retrieval_question",
+        "requested_direction",
+        "conditions"
+      ],
+      "title": "PlannedClaim",
+      "type": "object"
+    },
+    "UnplannedRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/UserAnchor"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "anchor",
+        "reason"
+      ],
+      "title": "UnplannedRequest",
+      "type": "object"
+    },
+    "UserAnchor": {
+      "additionalProperties": false,
+      "properties": {
+        "turn_id": {
+          "pattern": "^U[1-9][0-9]*$",
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "quote": {
+          "maxLength": 1500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "turn_id",
+        "quote"
+      ],
+      "title": "UserAnchor",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/PlannedClaim"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Claims",
+      "type": "array"
+    },
+    "unplanned_requests": {
+      "items": {
+        "$ref": "#/$defs/UnplannedRequest"
+      },
+      "maxItems": 8,
+      "title": "Unplanned Requests",
+      "type": "array"
+    }
+  },
+  "required": [
+    "claims",
+    "unplanned_requests"
+  ],
+  "title": "ClaimPlan",
+  "type": "object"
+}

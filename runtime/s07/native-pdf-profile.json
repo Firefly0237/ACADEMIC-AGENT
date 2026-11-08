@@ -1,0 +1,7 @@
+{
+  "version": "citequest-native-pdf-access/1",
+  "state": "adopted",
+  "adoption_ref": "docs/decisions/ADR-0031-qualified-public-source-pdf-profile.md",
+  "exact_source_license": "CC-BY-4.0",
+  "use": "unmodified_source_view_download_with_attribution"
+}

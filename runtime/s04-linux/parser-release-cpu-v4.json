@@ -1,0 +1,41 @@
+{
+  "schema_version": "citequest-parser-runtime-release/2",
+  "status": "candidate_linux_controls_passed_pending_product_parse",
+  "id": "linux-parser-localxyz-official-cpu-abi/4",
+  "image_id": "sha256:d87e267f79a2b19b196e90898247233a9ec48eb80201929bcf2caa72d10f0d00",
+  "base_image_id": "sha256:b95e7674f7a8e63edc8d7f8e0afec4b53de8738c34146dc4c7b934a5ae4f22ae",
+  "source_manifest_file": "runtime/s04-linux/parser-cpu-v4-source-manifest.json",
+  "source_manifest_sha256": "181228f39856b27324479f4819c8f0f034679fabc1e2a25ad653325907a5b940",
+  "parser_profile_relative": "runtime/s04-linux/worker-profile-cpu-v3.json",
+  "parser_profile_sha256": "9129efb0e6a62352f2e0eb850cfc335c65c5a6687b67998133c587d90e7743e3",
+  "operator_launcher_sha256": "7bfac79b88c83037c0fa6bbbafb1d7585e2384c995323b426df8b53c005362b4",
+  "operator_consumer_sha256": "d117d50c0061f740dc98392a1939768e1ac03c2c5b87f49dd15a1ad6cfc9e886",
+  "worker_entry_sha256": "7f72cb719fa49a2d8c1c66d33963010cc8dcec5c9eafe9b9adaa0584682af5e4",
+  "pdf_navigation_sha256": "4109daa73bb2d2b2cd2668bdc0c1a71f248924b3883c3089dd22ece8b27ddb57",
+  "dependencies_changed": true,
+  "resource_limits_changed": false,
+  "accepted_open_action_policy": "inert same-reader current-page Fit/FitB or exact XYZ only; no chains or remote/executable actions",
+  "linux_controls": "reports/stages/v3/S12-material-inputs/parser-cpu-linux-controls-r1/verification.json",
+  "host_controls": "reports/stages/v3/S12-material-inputs/pdf-navigation-controls-r2/pytest.xml",
+  "old_failed_files_reset_or_retried": false,
+  "model_API_calls": 0,
+  "host_protocol_sha256": "b00bcb69424f0bdd805f7dea32f490aa92a270cd955212510d07797fe34ceedd",
+  "fixed_profile_registry_sha256": "a4bd82fbd342b3397433d4419f478b44c2507fd8e3b1ecf70dd9acb453aae978",
+  "retained_failed_candidate": "runtime/s04-linux/parser-release-xyz-v3.json",
+  "dependency_delta": {
+    "torchvision": {
+      "from": "0.29.2 PyPI CUDA-linked",
+      "to": "0.29.2+cpu official CPU stable index"
+    }
+  },
+  "dependency_lock_files": [
+    "runtime/s04-linux-cpu-v2/pyproject.toml",
+    "runtime/s04-linux-cpu-v2/uv.lock",
+    "runtime/s04-linux-cpu-v2/requirements.txt"
+  ],
+  "cpu_wheel_sha256": "87631236a47be98ab21301e8cb4fc1cbb9325fe0aa7a022e18d2f894087b68c3",
+  "CPU_native_smoke": [
+    "reports/stages/v3/S12-material-inputs/cpu-image-processor-plain-r1/verification.json",
+    "reports/stages/v3/S12-material-inputs/cpu-image-processor-seccomp-r1/verification.json"
+  ]
+}

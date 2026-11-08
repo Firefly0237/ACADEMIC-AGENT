@@ -1,0 +1,164 @@
+.cq-brief {
+  min-width: 0;
+}
+.cq-brief-sources {
+  padding: 14px;
+  border: 1px solid #dce5e8;
+  margin: 16px 0;
+  border-radius: 8px;
+}
+.cq-brief-sources ul {
+  padding: 0;
+  list-style: none;
+}
+.cq-brief-sources li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0;
+}
+.cq-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.cq-section-heading h2 {
+  margin-top: 0;
+}
+.cq-brief-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 18px;
+}
+.cq-brief-field {
+  min-width: 0;
+}
+.cq-brief-field > label {
+  display: block;
+  font-weight: 600;
+  margin: 8px 0;
+}
+.cq-field-state {
+  display: inline-block;
+  font-size: 0.78rem;
+  color: #5b747b;
+  font-weight: 400;
+  margin-left: 8px;
+}
+.cq-brief-field textarea {
+  min-height: 135px;
+}
+.cq-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cq-inline-actions details {
+  min-width: 0;
+  max-width: 100%;
+}
+.cq-more-fields {
+  border-top: 1px solid #dae5e7;
+  margin: 22px 0;
+  padding-top: 14px;
+}
+.cq-more-fields > summary {
+  cursor: pointer;
+  color: #206274;
+}
+.cq-save-row {
+  margin: 20px 0;
+}
+.cq-success {
+  background: #edf6f1;
+  padding: 10px 14px;
+  color: #275f4c;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+.cq-version-conflict {
+  background: #fff7e9;
+  padding: 18px;
+  border: 1px solid #e8d6ae;
+  border-radius: 8px;
+  margin: 16px 0;
+}
+.cq-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.cq-table-scroll table {
+  border-collapse: collapse;
+  min-width: 560px;
+  width: 100%;
+}
+.cq-table-scroll th,
+.cq-table-scroll td {
+  padding: 10px;
+  vertical-align: top;
+  border-bottom: 1px solid #dce5e8;
+  max-width: 420px;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.cq-literal {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cq-proposals {
+  border-top: 1px solid #dce5e8;
+  margin-top: 24px;
+}
+.cq-proposal {
+  padding: 16px;
+  border: 1px solid #dce5e8;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  background: #fff;
+  min-width: 0;
+}
+.cq-proposal .markdown {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.cq-proposal details {
+  margin-top: 14px;
+}
+.cq-proposal details label {
+  display: block;
+}
+.cq-proposal h4 {
+  margin-top: 0;
+  overflow-wrap: anywhere;
+}
+.cq-planning-gate {
+  background: #eef5f6;
+  border-radius: 8px;
+  padding: 18px;
+  margin-top: 24px;
+}
+.cq-brief .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 5px;
+}
+.cq-brief .markdown {
+  min-width: 0;
+  max-width: 100%;
+}
+.draft-candidates input[type="radio"] { width: auto; margin-right: .5rem; }
+.draft-candidates fieldset { margin: 1rem 0; border: 1px solid var(--line, #d9e1df); border-radius: .5rem; padding: 1rem; }
+.draft-candidates label { display: block; line-height: 1.7; }
+.school-contents { padding: 1rem; border: 1px solid #dce5e8; border-radius: .5rem; }
+.school-contents ol { columns: 2; column-gap: 2rem; }
+.school-section { scroll-margin-top: 1.5rem; margin-top: 2.5rem; }
+.school-draft { min-width: 0; overflow-wrap: anywhere; }
+.export-jobs { list-style: none; padding: 0; }
+.export-jobs li { padding: .75rem 0; border-bottom: 1px solid #dce5e8; }
+.export-jobs a { margin: .5rem .5rem .5rem 0; }
+@media (max-width: 650px) { .school-contents ol { columns: 1; } }

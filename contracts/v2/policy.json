@@ -1,0 +1,352 @@
+{
+  "contract_version": "2.0.0-s02.1",
+  "scope": "local_single_user_computer_science_academic",
+  "s01_contract_adoption": {
+    "state": "accepted_by_user",
+    "source": "User confirmed adopt after review, close S01 supplemental profile, then start executable S02",
+    "does_not_authorize_future_cash": true
+  },
+  "limits": {
+    "search_characters": 2000,
+    "claim_characters": 8000,
+    "message_characters": 16000,
+    "text_material_bytes": 2097152,
+    "text_material_characters": 200000,
+    "pdf_bytes": 52428800,
+    "pdf_pages": 200,
+    "docx_bytes": 20971520,
+    "docx_uncompressed_bytes": 209715200,
+    "docx_zip_entries": 5000,
+    "summary_compare_documents": 10,
+    "research_workset_documents": 30,
+    "skill_files": 200,
+    "skill_archive_bytes": 5242880,
+    "skill_uncompressed_bytes": 20971520,
+    "skill_instruction_bytes": 65536,
+    "search_page_size": 50,
+    "search_snapshot_candidates": 1000,
+    "search_snapshot_ttl_seconds": 900,
+    "needs_input_retention_days": 30
+  },
+  "budget_profiles": {
+    "s01-api-feasibility-v1": {
+      "state": "adopted_historical",
+      "model_attempts": 24,
+      "tool_attempts": 20,
+      "model_revision_rounds": 2,
+      "input_tokens_observed_limit": 120000,
+      "output_tokens_limit": 18000,
+      "time_policy": "absolute_wallclock",
+      "time_limit_seconds": 1800,
+      "cash_scope": "S01_only_frozen_no_new_dispatch",
+      "per_call_output_limit": 2048,
+      "per_call_input_observed_limit": 5888,
+      "request_utf8_bytes_limit": 24576,
+      "exact_pre_dispatch_token_count_guaranteed": false
+    },
+    "qa-v2-candidate": {
+      "state": "candidate_not_executable",
+      "model_attempts": 6,
+      "tool_attempts": 8,
+      "model_revision_rounds": 1,
+      "input_tokens_observed_limit": 24000,
+      "output_tokens_limit": 6000,
+      "time_policy": "response_wallclock_including_queue",
+      "time_limit_seconds": 120,
+      "per_call_output_limit": 2048,
+      "per_call_input_observed_limit": 5888,
+      "request_utf8_bytes_limit": 24576,
+      "exact_pre_dispatch_token_count_guaranteed": false
+    },
+    "multidoc-v2-candidate": {
+      "state": "candidate_not_executable",
+      "model_attempts": 16,
+      "tool_attempts": 24,
+      "model_revision_rounds": 2,
+      "input_tokens_observed_limit": 80000,
+      "output_tokens_limit": 16000,
+      "time_policy": "cumulative_active_union",
+      "time_limit_seconds": 600,
+      "per_call_output_limit": 2048,
+      "per_call_input_observed_limit": 5888,
+      "request_utf8_bytes_limit": 24576,
+      "exact_pre_dispatch_token_count_guaranteed": false
+    },
+    "school-v2-candidate": {
+      "state": "candidate_not_executable",
+      "model_attempts": 48,
+      "tool_attempts": 40,
+      "model_revision_rounds": 2,
+      "input_tokens_observed_limit": 240000,
+      "output_tokens_limit": 40000,
+      "time_policy": "cumulative_active_union",
+      "time_limit_seconds": 1800,
+      "literature_review_min_han": 5000,
+      "body_soft_target_han": [
+        8000,
+        12000
+      ],
+      "requires_actual_longform_spike": true,
+      "per_call_output_limit": 2048,
+      "per_call_input_observed_limit": 5888,
+      "request_utf8_bytes_limit": 24576,
+      "exact_pre_dispatch_token_count_guaranteed": false
+    }
+  },
+  "dispatch": {
+    "future_cash_authorization": null,
+    "deny_if_missing": [
+      "active_profile_adoption",
+      "provider_capability_verification",
+      "active_cash_authorization",
+      "experiment_shared_cap",
+      "task_subcap",
+      "price_snapshot",
+      "persisted_intent_and_reservation"
+    ],
+    "physical_attempt_order": [
+      "persist_intent",
+      "reserve_worst_case_cash",
+      "dispatch_http",
+      "persist_usage_and_settlement",
+      "validate_output",
+      "persist_artifact",
+      "checkpoint",
+      "terminal_state"
+    ],
+    "unknown_usage": "retain_full_reservation_stop_new_dispatch",
+    "known_not_sent": "audit_resolution_only_preserve_original_failure",
+    "output_limit": "minimum_of_per_call_max_and_remaining_task_output",
+    "input_limit": "check_actual_usage_after_response_fail_and_stop_if_exceeded",
+    "sdk_hidden_retry": false,
+    "fallback_models": false,
+    "global_model_concurrency": 1,
+    "active_research_concurrency": 1,
+    "retrieval_io_concurrency": 2,
+    "research_queue_length": 2,
+    "research_queue_timeout_seconds": 300,
+    "new_task_does_not_reset_session_project_caps": true
+  },
+  "task_transitions": {
+    "queued": [
+      "running",
+      "cancelled",
+      "expired",
+      "failed"
+    ],
+    "running": [
+      "needs_input",
+      "partial",
+      "failed",
+      "cancelled",
+      "completed"
+    ],
+    "needs_input": [
+      "queued",
+      "cancelled",
+      "expired"
+    ],
+    "partial": [],
+    "failed": [],
+    "cancelled": [],
+    "completed": [],
+    "expired": []
+  },
+  "task_rules": {
+    "terminal_restart": "new_explicit_child_task_preserves_parent_and_shared_caps",
+    "revision": "same_task_thread_lease_expected_revision_budget_unchanged",
+    "thread_id": "owner_id + colon + task_id; never session_id",
+    "idempotency": "unique(owner_id,session_id,client_message_id); same_payload_returns_original; changed_payload_409",
+    "lease": "single_valid_lease_per_task; concurrent_resume_only_one_winner",
+    "needs_input": "persist_interrupt_no_inflight_work_before_pause; expiry_stops_dispatch_not_delete_material",
+    "active_time": "union_UTC_running_intervals; monotonic_segment_measurements; conservative_crash_reconciliation; network_tools_retries_count",
+    "resume": "remaining_limits_only; revalidate_current_acl_memory_and_input_revision",
+    "status_and_gate_separate": true
+  },
+  "upload_transitions": {
+    "queued": [
+      "validating",
+      "cancelled"
+    ],
+    "validating": [
+      "parsing",
+      "failed",
+      "cancelled"
+    ],
+    "parsing": [
+      "partial",
+      "ready",
+      "failed",
+      "cancelled"
+    ],
+    "partial": [],
+    "ready": [],
+    "failed": [],
+    "cancelled": []
+  },
+  "security": {
+    "loopback_only": true,
+    "local_session_required": true,
+    "same_origin_and_csrf_required": true,
+    "current_acl_overrides_pinned_snapshot": true,
+    "blob_dedup_scope": "security_domain",
+    "url_schemes": [
+      "https"
+    ],
+    "allowed_url_adapters": [
+      "arxiv",
+      "doi_crossref"
+    ],
+    "redirects_max": 3,
+    "validate_each_redirect_and_resolved_ip": true,
+    "reject_loopback_private_linklocal_multicast_reserved_ips": true,
+    "disable_pdf_javascript": true,
+    "disable_untrusted_html_scripts": true,
+    "uploaded_documents_are_untrusted_data": true,
+    "skills_cannot_expand_permissions": true,
+    "skill_scripts": "unsupported_until_sandbox_gate",
+    "external_cloud_document_policy": "selected_fragments_only_and_explicit_document_policy",
+    "never_public_log": [
+      "authorization",
+      "api_key",
+      "raw_reasoning",
+      "private_full_document"
+    ]
+  },
+  "memory": {
+    "namespace": [
+      "owner_id",
+      "project_id",
+      "namespace"
+    ],
+    "model_inference_auto_promotion": false,
+    "correction_and_deletion": "invalidate_prior_references_before_context_assembly; tombstone_barrier_over_old_checkpoint",
+    "checkpoint_is_not_artifact_or_evidence_source": true,
+    "audit_records_preserved": "fees_and_events_immutable_redacted; private_content_deletion_has_separate_retention_policy"
+  },
+  "publication": {
+    "authority": "PostgreSQL active_generation",
+    "pin": [
+      "explicit_collection_name",
+      "metadata_manifest_sha256",
+      "corpus_version",
+      "acl_epoch"
+    ],
+    "alias_is_not_cross_database_transaction": true,
+    "sequence": [
+      "build_shadow",
+      "id_count_hash_canary",
+      "prepared",
+      "commit_pg_active_pointer",
+      "reconcile_alias"
+    ],
+    "current_acl_revocation_precedes_snapshot": true,
+    "private_ready_not_waiting_public_weekly_publish": true
+  },
+  "errors": {
+    "INVALID_INPUT": 400,
+    "UNAUTHENTICATED": 401,
+    "SCOPE_DENIED": 403,
+    "NOT_FOUND": 404,
+    "REVISION_CONFLICT": 409,
+    "IDEMPOTENCY_CONFLICT": 409,
+    "TASK_TERMINAL": 409,
+    "INPUT_TOO_LARGE": 413,
+    "UNSUPPORTED_MEDIA": 415,
+    "CORRUPT_DOCUMENT": 422,
+    "ENCRYPTED_DOCUMENT": 422,
+    "OCR_REQUIRED": 422,
+    "NO_FULLTEXT": 422,
+    "INSUFFICIENT_EVIDENCE": 422,
+    "CAPABILITY_UNAVAILABLE": 503,
+    "PROFILE_NOT_ADOPTED": 409,
+    "CASH_NOT_AUTHORIZED": 409,
+    "BUDGET_EXHAUSTED": 409,
+    "USAGE_LIMIT_EXCEEDED": 422,
+    "UNKNOWN_USAGE_STOP": 503,
+    "QUEUE_BUSY": 429,
+    "DEADLINE_EXCEEDED": 504,
+    "UPSTREAM_FAILED": 502,
+    "PERSISTENCE_UNAVAILABLE": 503
+  },
+  "citation_required_fields": {
+    "article-journal": [
+      "title",
+      "author",
+      "issued",
+      "container-title"
+    ],
+    "paper-conference": [
+      "title",
+      "author",
+      "issued",
+      "event-title_or_container-title"
+    ],
+    "book": [
+      "title",
+      "author_or_editor",
+      "issued",
+      "publisher"
+    ],
+    "report": [
+      "title",
+      "author_or_institution",
+      "issued",
+      "publisher_or_institution"
+    ],
+    "webpage": [
+      "title",
+      "author_or_responsible_organization",
+      "URL",
+      "accessed"
+    ]
+  },
+  "citation_rules": {
+    "optional_identifiers": "DOI/page fields only required if real source provides them; never invent",
+    "metadata_checked": "all type-specific critical fields source-verified; no critical missing field",
+    "formatted_is_not_source_checked": true,
+    "style_id": "exact pinned CSL ID and sha256 required",
+    "n_d_placeholder": "does not upgrade missing critical publication metadata to formal_report_ready"
+  },
+  "normalization": {
+    "native_ids": "preserve original string and namespace; never cast IDs to float",
+    "unknown": "null; never year0/current_year/CC0 by default",
+    "doi": "retain raw; remove DOI resolver prefix and normalize case per DOI rules; conflict requires audit",
+    "source_native_unique": [
+      "source",
+      "native_id"
+    ],
+    "work_merge": "strong identifier/source relation; title similarity creates candidate only; keep version/evidence/source snapshots immutable"
+  },
+  "source_audit": {
+    "first_batch": 500,
+    "continue_batch_size": 500,
+    "primary_candidate_cap": 3000,
+    "fallback_source": "public_unarXive_declared_subset",
+    "fallback_candidate_cap": 3000,
+    "minimum_eligible_fulltexts": 500,
+    "maximum_frozen_eligible_fulltexts": 2000,
+    "stop_rule": "stop at2000 eligible or6000 audited candidate upper bound; <500 eligible then fail",
+    "eligibility": [
+      "document_bytes_anonymously_retrievable",
+      "source_and_license_allow_project_use_and_indexing",
+      "true_fulltext_not_abstract",
+      "native_id_alignment_known_or_marked_separate_source",
+      "original_text_and_locator_recoverable",
+      "no_corrupt_or_truncated_parse",
+      "fixed_snapshot_hash_and_permission_metadata"
+    ],
+    "candidate_order_source": "evaluation.json seeds and candidate_order",
+    "failure_and_exclusion_records_preserved": true
+  },
+  "citation_styles": [
+    {
+      "style_id": "http://www.zotero.org/styles/harvard-cite-them-right",
+      "sha256": "0ca3d2c7c881cd98cdd81098b5349f5921edf430498aa9a5a41918621cf7cc45",
+      "path": "reports/stages/v2/S02/export/sources/harvard-cite-them-right.csl",
+      "purpose": "paper_detail_harvard_candidate; not unique school-required style",
+      "source_title": "Cite Them Right 12th edition",
+      "source_summary_discrepancy": "Upstream summary still mentions11th edition; file SHA binds actual bytes"
+    }
+  ]
+}

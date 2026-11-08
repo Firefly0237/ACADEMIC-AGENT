@@ -1,0 +1,51 @@
+{
+  "schema_version": "citequest-offline-school-toolchain/1",
+  "font_profile": "citequest-linux-arphic-ukai-uming-liberation/2",
+  "file_sha256": {
+    "/usr/bin/soffice": "adf468b45764b2abce53a7d91bbf3056b33f2734c5d5f628c075753e73903c43",
+    "/usr/lib/libreoffice/program/soffice.bin": "7521ba327cd67300ba3778cb9e0e4947fd1672ed3879a2950673c66cd676a540",
+    "/usr/lib/libreoffice/program/libsmlo.so": "07804d3a7aa42cd600b6906e5fd924b7eed57a5476dfc7a650579e908630bfe5",
+    "/usr/lib/libreoffice/share/registry/math.xcd": "209326944bed0bea330c99ed54e5202baf4a88db7cabeb2a8d546f694866a0f3",
+    "/usr/local/lib/python3.12/site-packages/pypandoc/files/pandoc": "decd3dd11a3fe0c16ce56443343ec53adde6fbed6f97d7f56f06b1c424248e7b",
+    "/app/src/citequest/exports_v3/renderer_identity.py": "ecc10fe617fc4c811ac484b4be4c35745def74cfc98e94ea55040de56911e3e9",
+    "/app/src/citequest/exports_v3/pdf_gate.py": "ddc4dc5e931d099da4c7ab64dd98da359e9b29a037d799b552e54a880a3f0c14",
+    "/app/src/citequest/exports_v3/bibliography.py": "174cc7b66a654cdee669fff6571d0bc878c604e8264cde382cf05778dd9387b1",
+    "/app/src/citequest/research_v3/school_export.py": "2b2e2a85842bf0c34491f5e79cf49a3563e53bba040b36d72ccda3dbf2332655",
+    "/app/src/citequest/research_v3/school_contracts.py": "325531d630982b8d24f807409603589e1b340aa6a34e3db6e3a4f1d57b34d440",
+    "/app/src/citequest/research_v3/school_linux.py": "c5133288b03f5b4171ea916469acacda7412348d8b79dd59f48ea7c4f2e2d402",
+    "/app/src/citequest/agents_v3/contracts.py": "6797152ebf6572fef6fede898085ad03165756cde72867d93cdedff2d1a80422",
+    "/app/scripts/s13/bundle_entry.py": "99f937db99458253bc2bc52ae67b3ad626446fc00ad2f9571fcdf7a021fb053a"
+  },
+  "fonts": {
+    "AR PL UKai CN": {
+      "family": "AR PL UKai CN",
+      "sha256": "cfc758e69386a21bade8cb3b373fda20d7f2fac6e8904ced2ded98588b63e274"
+    },
+    "AR PL UMing CN": {
+      "family": "AR PL UMing CN",
+      "sha256": "fe952e55617275142d9cefd4d79eade4df446517b0478b2567d9bc7df49f70e2"
+    },
+    "DejaVu Sans": {
+      "family": "DejaVu Sans",
+      "sha256": "57f73e11f51999432bf7ab22ce55b6f945d5eca1bf824404cfa9ec2e3718c84e"
+    },
+    "Liberation Serif": {
+      "family": "Liberation Serif",
+      "sha256": "9caef765d2e891c10dd73658894f01e660fe0c1c83e0bda7d6edf561d8f623d4"
+    },
+    "Noto Sans CJK SC": {
+      "family": "Noto Sans CJK SC",
+      "sha256": "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a"
+    }
+  },
+  "template_sha256": "6bd1b4efb2106451686f15c406b9ae03b586939eca0d81604f20ab2c75a2da8d",
+  "csl_sha256": "0ca3d2c7c881cd98cdd81098b5349f5921edf430498aa9a5a41918621cf7cc45",
+  "python_packages": {
+    "python-docx": "1.2.0",
+    "docxtpl": "0.20.2",
+    "docxcompose": "2.2.0",
+    "pypandoc-binary": "1.17",
+    "pypdf": "6.21.4",
+    "lxml": "6.1.3"
+  }
+}

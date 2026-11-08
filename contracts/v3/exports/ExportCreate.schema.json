@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "operation_id": {
+      "format": "uuid",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "formats": {
+      "items": {
+        "enum": [
+          "docx",
+          "html",
+          "pdf"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "title": "Formats",
+      "type": "array"
+    }
+  },
+  "required": [
+    "operation_id",
+    "formats"
+  ],
+  "title": "ExportCreate",
+  "type": "object"
+}

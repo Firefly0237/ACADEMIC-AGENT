@@ -1,0 +1,14 @@
+{
+  "schema_version": "citequest-export-api/1",
+  "workspace": "/opt/citequest",
+  "release_profile_file": "/opt/citequest/runtime/s13/release-profile.json",
+  "release_profile_sha256": "b0758db89cc4d07f9635675e13f9031c3697c89eda59ecfa468c3787df8317f9",
+  "artifact_store": {
+    "mode": "development",
+    "backend": "filesystem",
+    "store_id": "citequest-private-export-v1",
+    "spool_dir": "/tmp/citequest-export-web-spool",
+    "maximum_object_bytes": 33554432,
+    "filesystem_root": "/var/lib/citequest/private-artifacts"
+  }
+}

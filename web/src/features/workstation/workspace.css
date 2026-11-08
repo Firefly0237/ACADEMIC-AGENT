@@ -1,0 +1,295 @@
+.cq-workspace {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 36px clamp(16px, 3vw, 36px);
+  min-width: 0;
+}
+.cq-workspace-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.cq-workspace-heading h1 {
+  margin-top: 0;
+}
+.cq-workspace-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #d9e4e7;
+  padding-bottom: 12px;
+  margin: 18px 0 24px;
+}
+.cq-workspace-tabs button[aria-current] {
+  background: #185968;
+  border-color: #185968;
+  color: white;
+}
+.cq-library-filters {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.cq-library-filters label {
+  display: block;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.cq-library-filters input,
+.cq-library-filters select {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+}
+.cq-library-filters button {
+  margin-bottom: 1px;
+}
+.cq-collection-create {
+  margin: 18px 0;
+}
+.cq-collection-create form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+}
+.cq-collection-create input {
+  margin-left: 8px;
+}
+.cq-collection-create label {
+  display: block;
+}
+.cq-collection-create select {
+  display: block;
+  max-width: 100%;
+  margin-top: 6px;
+}
+.cq-collection-list {
+  padding: 0;
+  list-style: none;
+}
+.cq-collection-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  flex-wrap: wrap;
+}
+.cq-collection-list span {
+  flex: 1 1 220px;
+  overflow-wrap: anywhere;
+}
+.cq-selection-bar {
+  padding: 14px;
+  border: 1px solid #cfe0e4;
+  background: #eef5f6;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 20px 0;
+}
+.cq-selection-bar span {
+  margin-right: auto;
+}
+.cq-selected-review {
+  margin: 12px 0;
+}
+.cq-selected-review ul {
+  list-style: none;
+  padding: 0;
+}
+.cq-selected-review li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 10px 0;
+}
+.cq-selected-review span {
+  flex: 1 1 250px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cq-library-list {
+  display: grid;
+  gap: 14px;
+}
+.cq-library-card {
+  display: flex;
+  gap: 14px;
+  padding: 20px;
+  background: white;
+  border: 1px solid #dce5e8;
+  border-radius: 9px;
+  min-width: 0;
+  margin-bottom: 14px;
+}
+.cq-library-card > input {
+  align-self: flex-start;
+  margin-top: 8px;
+  flex-shrink: 0;
+}
+.cq-entry-body {
+  flex: 1;
+  min-width: 0;
+}
+.cq-entry-body h3 {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+.cq-entry-body p,
+.cq-entry-body a {
+  overflow-wrap: anywhere;
+}
+.cq-title-button {
+  border: 0;
+  padding: 0;
+  text-align: left;
+  font-weight: 600;
+  font-size: inherit;
+  color: #206274;
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+.cq-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.cq-tag-list .tag {
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.cq-coverage {
+  color: #56717c;
+  font-size: 0.88rem;
+}
+.cq-entry-editor {
+  padding: 22px;
+  border: 1px solid #c9dce1;
+  border-radius: 9px;
+  margin-top: 22px;
+  background: white;
+  min-width: 0;
+}
+.cq-entry-editor h2 {
+  overflow-wrap: anywhere;
+}
+.cq-entry-editor fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.cq-entry-editor label {
+  display: block;
+  margin: 10px 0;
+}
+.cq-entry-editor label > input:not([type="checkbox"]) {
+  width: 100%;
+  margin-top: 6px;
+}
+.cq-check-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+.cq-check-grid label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.cq-note {
+  border-top: 1px solid #e1eaec;
+  padding: 12px 0;
+  min-width: 0;
+}
+.cq-note .markdown {
+  overflow-wrap: anywhere;
+}
+.cq-note .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.cq-confirm {
+  background: #fff7ea;
+  padding: 18px;
+  border: 1px solid #e6d4ae;
+  border-radius: 8px;
+  margin: 18px 0;
+  overflow-wrap: anywhere;
+}
+.cq-confirm button {
+  margin: 0 10px 8px 0;
+}
+.cq-undo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: #edf7f2;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.cq-legacy-items {
+  margin-top: 22px;
+}
+.cq-legacy-items > summary {
+  color: #526b75;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+.cq-history-row,
+.cq-task-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 18px;
+  border-bottom: 1px solid #dce5e8;
+  min-width: 0;
+}
+.cq-history-row small,
+.cq-task-row small {
+  display: block;
+  color: #6b7e85;
+}
+.cq-task-row h3 {
+  margin: 0;
+}
+.cq-task-launch {
+  border: 1px solid #c7dade;
+  background: white;
+  padding: 22px;
+  border-radius: 9px;
+  margin-top: 26px;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .cq-workspace {
+    padding: 20px 14px;
+  }
+  .cq-library-card {
+    padding: 14px;
+    gap: 9px;
+  }
+  .cq-entry-editor,
+  .cq-task-launch {
+    padding: 15px;
+  }
+  .cq-collection-create input {
+    display: block;
+    margin: 5px 0;
+    width: 100%;
+  }
+}

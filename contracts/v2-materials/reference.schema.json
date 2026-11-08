@@ -1,0 +1,542 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://citequest.local/contracts/reference-resolution/1",
+  "$defs": {
+    "ReferenceResolution": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "cq.reference-resolution/1"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "adapter": {
+          "enum": [
+            "doi_crossref",
+            "arxiv",
+            "unsupported"
+          ]
+        },
+        "state": {
+          "enum": [
+            "metadata_only",
+            "existing_material",
+            "queued",
+            "unavailable"
+          ]
+        },
+        "identifier": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "enum": [
+                    "crossref",
+                    "arxiv"
+                  ]
+                },
+                "identifier": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8192
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "alternate_titles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 8192
+                  }
+                },
+                "authors": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 2048
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "maxItems": 10000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "year": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1000,
+                      "maximum": 2200
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "year_source": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "doi": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "arxiv_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "abstract": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 1048576
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "abstract_format": {
+                  "enum": [
+                    "plain_text",
+                    "jats_xml",
+                    "none"
+                  ]
+                },
+                "license_urls": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 4096
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "source_url": {
+                  "type": "string",
+                  "format": "uri",
+                  "maxLength": 4096
+                },
+                "normalization_profile": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "provider",
+                "identifier",
+                "title",
+                "alternate_titles",
+                "authors",
+                "year",
+                "year_source",
+                "doi",
+                "arxiv_id",
+                "abstract",
+                "abstract_format",
+                "license_urls",
+                "source_url",
+                "normalization_profile"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "matches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "work_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "match_basis": {
+                "enum": [
+                  "exact_doi_identifier",
+                  "exact_arxiv_identifier"
+                ]
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/File"
+                }
+              },
+              "file_bindings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "file_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "binding_source": {
+                      "enum": [
+                        "none",
+                        "user_explicit",
+                        "trusted_source"
+                      ]
+                    },
+                    "identity_status": {
+                      "enum": [
+                        "unverified",
+                        "hash_verified"
+                      ]
+                    },
+                    "reuse_eligible": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "file_id",
+                    "binding_source",
+                    "identity_status",
+                    "reuse_eligible"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "work_id",
+              "title",
+              "match_basis",
+              "files"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/File"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fulltext": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "enum": [
+                "existing_authorized_material",
+                "queued",
+                "unavailable"
+              ]
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source_url": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uri",
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "new_material_rights_status": {
+              "enum": [
+                "unknown",
+                null
+              ]
+            },
+            "rights_verification_performed": {
+              "const": false
+            }
+          },
+          "required": [
+            "status",
+            "reason",
+            "source_url",
+            "new_material_rights_status",
+            "rights_verification_performed"
+          ],
+          "additionalProperties": false
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "metadata_blob": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "size_bytes": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "required": [
+                    "sha256",
+                    "size_bytes"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "network_receipts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 4096
+                  },
+                  "retrieved_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "status": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 599
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "body_complete": {
+                    "type": "boolean"
+                  },
+                  "body_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "body_sha256": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "ambient_proxy_used": {
+                    "const": false
+                  },
+                  "automatic_retries": {
+                    "const": 0
+                  },
+                  "hostname": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "resolved_ips": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "dns_all_addresses_safe": {
+                    "type": "boolean"
+                  },
+                  "selected_ip": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "connected_ip": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tls_hostname": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tls_certificate_verified": {
+                    "type": "boolean"
+                  },
+                  "redirect_to": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 4096
+                  },
+                  "error_type": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "error_detail": {
+                    "type": "string",
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "url",
+                  "retrieved_at",
+                  "status",
+                  "body_complete",
+                  "body_bytes",
+                  "body_sha256",
+                  "ambient_proxy_used",
+                  "automatic_retries"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "local_lookup_scope": {
+              "const": "current_actor_and_public_identifiers"
+            }
+          },
+          "required": [
+            "metadata_blob",
+            "network_receipts",
+            "local_lookup_scope"
+          ],
+          "additionalProperties": false
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "request": {
+          "type": "object",
+          "properties": {
+            "input_type": {
+              "enum": [
+                "doi",
+                "url"
+              ]
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "project_id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "input_type",
+            "value",
+            "project_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation_id",
+        "adapter",
+        "state",
+        "identifier",
+        "metadata",
+        "matches",
+        "file",
+        "fulltext",
+        "provenance",
+        "warnings"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$ref": "#/$defs/ReferenceResolution",
+  "$comment": "Compose with the frozen S02 domain $defs for File; neither fake File nor guessed metadata is permitted. Network proof is not rights verification."
+}

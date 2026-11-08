@@ -1,0 +1,15 @@
+{
+  "version": "citequest-decisionrag-task/1",
+  "judge": {
+    "version": "citequest-decisionrag-remote/1",
+    "base_url": "http://127.0.0.1:18031",
+    "bearer_token_file": "/run/secrets/decisionrag-token"
+  },
+  "document_keep": 1,
+  "passage_keep": 1,
+  "max_documents": 2,
+  "max_passages": 2,
+  "max_shared_bytes": 32768,
+  "active_seconds": 25,
+  "local_input_token_limit": 16384
+}

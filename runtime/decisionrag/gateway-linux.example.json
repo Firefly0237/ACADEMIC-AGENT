@@ -1,0 +1,10 @@
+{
+  "version": "citequest-decisionrag-Linux-CPU/1",
+  "host": "127.0.0.1",
+  "port": 18031,
+  "bearer_token_file": "/run/secrets/decisionrag-token",
+  "assets": "/srv/citequest/assets/decisionrag",
+  "asset_receipt_file": "/srv/citequest/assets/decisionrag/receipt.json",
+  "asset_receipt_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "cache_root": "/var/cache/citequest/decisionrag"
+}

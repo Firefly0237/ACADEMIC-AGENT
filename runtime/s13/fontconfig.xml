@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <!-- Explicit open-font Linux profile, not Windows font-family equivalence. -->
+  <alias><family>楷体</family><prefer><family>Noto Serif CJK SC</family></prefer></alias>
+  <alias><family>楷体_GB2312</family><prefer><family>Noto Serif CJK SC</family></prefer></alias>
+  <alias><family>华文楷体</family><prefer><family>Noto Serif CJK SC</family></prefer></alias>
+  <alias><family>华文仿宋</family><prefer><family>Noto Serif CJK SC</family></prefer></alias>
+  <alias><family>宋体</family><prefer><family>Noto Serif CJK SC</family></prefer></alias>
+  <alias><family>SimSun</family><prefer><family>Noto Serif CJK SC</family></prefer></alias>
+  <alias><family>Times New Roman</family><prefer><family>Liberation Serif</family></prefer></alias>
+  <alias><family>Cambria Math</family><prefer><family>Noto Sans Math</family><family>DejaVu Sans</family></prefer></alias>
+</fontconfig>

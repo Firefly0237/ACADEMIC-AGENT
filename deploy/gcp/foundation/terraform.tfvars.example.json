@@ -1,0 +1,20 @@
+{
+  "project_id": "replace-with-project-id",
+  "region": "asia-east1",
+  "name_prefix": "citequest-example",
+  "subnet_cidr": "10.20.0.0/24",
+  "private_services_cidr": "10.40.0.0/16",
+  "blob_bucket_name": "replace-with-unique-citequest-blobs",
+  "sql_instance_name": "citequest-example-pg",
+  "sql_tier": "db-custom-2-7680",
+  "sql_availability_type": "REGIONAL",
+  "sql_disk_size_gb": 20,
+  "sql_disk_limit_gb": 100,
+  "api_secret_refs": {
+    "session_signing": { "secret_id": "citequest-session-signing", "version": "1" }
+  },
+  "worker_secret_refs": {
+    "model_provider": { "secret_id": "citequest-model-provider", "version": "1" }
+  },
+  "labels": { "environment": "example" }
+}

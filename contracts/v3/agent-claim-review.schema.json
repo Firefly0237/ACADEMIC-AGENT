@@ -1,0 +1,79 @@
+{
+  "$defs": {
+    "ClaimReview": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "pattern": "^C[1-9][0-9]?$",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "entailed",
+            "contradicted",
+            "mixed",
+            "insufficient",
+            "invalid"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "edge_ref_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 5,
+          "title": "Edge Ref Ids",
+          "type": "array"
+        },
+        "numeric_and_conditions_preserved": {
+          "title": "Numeric And Conditions Preserved",
+          "type": "boolean"
+        },
+        "explanation": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Explanation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "verdict",
+        "edge_ref_ids",
+        "numeric_and_conditions_preserved",
+        "explanation"
+      ],
+      "title": "ClaimReview",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/ClaimReview"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Claims",
+      "type": "array"
+    },
+    "source_instruction_injection_detected": {
+      "title": "Source Instruction Injection Detected",
+      "type": "boolean"
+    },
+    "requested_stance_bias_detected": {
+      "title": "Requested Stance Bias Detected",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "claims",
+    "source_instruction_injection_detected",
+    "requested_stance_bias_detected"
+  ],
+  "title": "Review",
+  "type": "object"
+}

@@ -1,0 +1,53 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "operation_id": {
+      "format": "uuid",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "expected_revision": {
+      "minimum": 1,
+      "title": "Expected Revision",
+      "type": "integer"
+    },
+    "kind": {
+      "enum": [
+        "resume",
+        "followup",
+        "cancel"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "message": {
+      "default": "",
+      "maxLength": 8000,
+      "title": "Message",
+      "type": "string"
+    },
+    "requested_direction": {
+      "anyOf": [
+        {
+          "enum": [
+            "support",
+            "refute"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Requested Direction"
+    }
+  },
+  "required": [
+    "operation_id",
+    "expected_revision",
+    "kind"
+  ],
+  "title": "TaskCommand",
+  "type": "object"
+}

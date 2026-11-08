@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "BlobStoreConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "development",
+            "test",
+            "cloud"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "backend": {
+          "enum": [
+            "filesystem",
+            "gcs",
+            "gcs_emulator"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "store_id": {
+          "title": "Store Id",
+          "type": "string"
+        },
+        "spool_dir": {
+          "format": "path",
+          "title": "Spool Dir",
+          "type": "string"
+        },
+        "maximum_object_bytes": {
+          "default": 67108864,
+          "title": "Maximum Object Bytes",
+          "type": "integer"
+        },
+        "filesystem_root": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filesystem Root"
+        },
+        "gcp_project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gcp Project"
+        },
+        "gcs_bucket": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gcs Bucket"
+        },
+        "emulator_endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Emulator Endpoint"
+        }
+      },
+      "required": [
+        "mode",
+        "backend",
+        "store_id",
+        "spool_dir"
+      ],
+      "title": "BlobStoreConfig",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "citequest-export-api/1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "workspace": {
+      "format": "path",
+      "title": "Workspace",
+      "type": "string"
+    },
+    "release_profile_file": {
+      "format": "path",
+      "title": "Release Profile File",
+      "type": "string"
+    },
+    "release_profile_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Release Profile Sha256",
+      "type": "string"
+    },
+    "artifact_store": {
+      "$ref": "#/$defs/BlobStoreConfig"
+    }
+  },
+  "required": [
+    "schema_version",
+    "workspace",
+    "release_profile_file",
+    "release_profile_sha256",
+    "artifact_store"
+  ],
+  "title": "ExportAPIConfig",
+  "type": "object"
+}

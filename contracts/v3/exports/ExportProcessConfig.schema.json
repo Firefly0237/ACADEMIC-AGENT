@@ -1,0 +1,280 @@
+{
+  "$defs": {
+    "BlobStoreConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "development",
+            "test",
+            "cloud"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "backend": {
+          "enum": [
+            "filesystem",
+            "gcs",
+            "gcs_emulator"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "store_id": {
+          "title": "Store Id",
+          "type": "string"
+        },
+        "spool_dir": {
+          "format": "path",
+          "title": "Spool Dir",
+          "type": "string"
+        },
+        "maximum_object_bytes": {
+          "default": 67108864,
+          "title": "Maximum Object Bytes",
+          "type": "integer"
+        },
+        "filesystem_root": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filesystem Root"
+        },
+        "gcp_project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gcp Project"
+        },
+        "gcs_bucket": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gcs Bucket"
+        },
+        "emulator_endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Emulator Endpoint"
+        }
+      },
+      "required": [
+        "mode",
+        "backend",
+        "store_id",
+        "spool_dir"
+      ],
+      "title": "BlobStoreConfig",
+      "type": "object"
+    },
+    "RuntimeLimits": {
+      "additionalProperties": false,
+      "description": "Trusted lifetime development policy; no caller input, hidden reset or daily window.",
+      "properties": {
+        "mode": {
+          "enum": [
+            "bounded",
+            "development_aggregate_unlimited"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "owner_cash_ncny": {
+          "default": 100000000000,
+          "maximum": 100000000000,
+          "minimum": 1,
+          "title": "Owner Cash Ncny",
+          "type": "integer"
+        },
+        "project_cash_ncny": {
+          "default": 500000000000,
+          "maximum": 500000000000,
+          "minimum": 1,
+          "title": "Project Cash Ncny",
+          "type": "integer"
+        },
+        "owner_active_tasks": {
+          "default": 2,
+          "maximum": 2,
+          "minimum": 1,
+          "title": "Owner Active Tasks",
+          "type": "integer"
+        },
+        "owner_total_tasks": {
+          "default": 200,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Owner Total Tasks",
+          "type": "integer"
+        },
+        "campaign_cash_ncny": {
+          "anyOf": [
+            {
+              "maximum": 500000000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Campaign Cash Ncny"
+        },
+        "campaign_prior_reserved_ncny": {
+          "default": 0,
+          "maximum": 500000000000,
+          "minimum": 0,
+          "title": "Campaign Prior Reserved Ncny",
+          "type": "integer"
+        },
+        "model_dispatch_concurrency": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Dispatch Concurrency"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "RuntimeLimits",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "citequest-export-process/1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "workspace": {
+      "format": "path",
+      "title": "Workspace",
+      "type": "string"
+    },
+    "release_profile_file": {
+      "format": "path",
+      "title": "Release Profile File",
+      "type": "string"
+    },
+    "release_profile_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Release Profile Sha256",
+      "type": "string"
+    },
+    "business_dsn_file": {
+      "format": "path",
+      "title": "Business Dsn File",
+      "type": "string"
+    },
+    "checkpoint_dsn_file": {
+      "format": "path",
+      "title": "Checkpoint Dsn File",
+      "type": "string"
+    },
+    "memory_dsn_file": {
+      "format": "path",
+      "title": "Memory Dsn File",
+      "type": "string"
+    },
+    "cursor_key_file": {
+      "format": "path",
+      "title": "Cursor Key File",
+      "type": "string"
+    },
+    "search_config_file": {
+      "format": "path",
+      "title": "Search Config File",
+      "type": "string"
+    },
+    "material_config_file": {
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Material Config File"
+    },
+    "limits": {
+      "$ref": "#/$defs/RuntimeLimits"
+    },
+    "artifact_store": {
+      "$ref": "#/$defs/BlobStoreConfig"
+    },
+    "worker_spool": {
+      "format": "path",
+      "title": "Worker Spool",
+      "type": "string"
+    },
+    "docker_cli": {
+      "format": "path",
+      "title": "Docker Cli",
+      "type": "string"
+    },
+    "docker_config": {
+      "format": "path",
+      "title": "Docker Config",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "workspace",
+    "release_profile_file",
+    "release_profile_sha256",
+    "business_dsn_file",
+    "checkpoint_dsn_file",
+    "memory_dsn_file",
+    "cursor_key_file",
+    "search_config_file",
+    "limits",
+    "artifact_store",
+    "worker_spool",
+    "docker_cli",
+    "docker_config"
+  ],
+  "title": "ExportProcessConfig",
+  "type": "object"
+}

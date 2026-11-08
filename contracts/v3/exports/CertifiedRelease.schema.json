@@ -1,0 +1,126 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "citequest-certified-linux-export-profile/1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Status",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "image_id": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "title": "Image Id",
+      "type": "string"
+    },
+    "toolchain_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Toolchain Sha256",
+      "type": "string"
+    },
+    "font_profile": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Font Profile",
+      "type": "string"
+    },
+    "deadline_seconds": {
+      "const": 90,
+      "title": "Deadline Seconds",
+      "type": "integer"
+    },
+    "lease_seconds": {
+      "const": 120,
+      "title": "Lease Seconds",
+      "type": "integer"
+    },
+    "owner_active_limit": {
+      "const": 2,
+      "title": "Owner Active Limit",
+      "type": "integer"
+    },
+    "global_active_limit": {
+      "const": 100,
+      "title": "Global Active Limit",
+      "type": "integer"
+    },
+    "capacity_certification_manifest": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Capacity Certification Manifest",
+      "type": "string"
+    },
+    "capacity_certification_manifest_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Capacity Certification Manifest Sha256",
+      "type": "string"
+    },
+    "toolchain_identity": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Toolchain Identity",
+      "type": "string"
+    },
+    "evidence": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "object"
+    },
+    "not_verified": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Not Verified",
+      "type": "array"
+    },
+    "actual_model_requests": {
+      "const": 0,
+      "title": "Actual Model Requests",
+      "type": "integer"
+    },
+    "host_adapter_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Host Adapter Sha256",
+      "type": "string"
+    },
+    "host_worker_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Host Worker Sha256",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "status",
+    "id",
+    "image_id",
+    "toolchain_sha256",
+    "font_profile",
+    "deadline_seconds",
+    "lease_seconds",
+    "owner_active_limit",
+    "global_active_limit",
+    "capacity_certification_manifest",
+    "capacity_certification_manifest_sha256",
+    "toolchain_identity",
+    "evidence",
+    "not_verified",
+    "actual_model_requests",
+    "host_adapter_sha256",
+    "host_worker_sha256"
+  ],
+  "title": "CertifiedRelease",
+  "type": "object"
+}

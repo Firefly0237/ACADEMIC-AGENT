@@ -1,0 +1,32 @@
+{
+  "schema_version": "citequest-certified-linux-export-profile/1",
+  "status": "component_verified_product_composition_pending",
+  "id": "linux-arphic-office-r7/1",
+  "image_id": "sha256:889afa774748a7711ddf7438432ee2c1b367fcda9dcf77252ef998dc5eb5df00",
+  "toolchain_sha256": "807036b81e7ec023b8f62a67e7efaaee3dcdb8cb789264ae4984ecd752e0b377",
+  "font_profile": "citequest-linux-arphic-ukai-uming-liberation/2",
+  "deadline_seconds": 90,
+  "lease_seconds": 120,
+  "owner_active_limit": 2,
+  "global_active_limit": 100,
+  "capacity_certification_manifest": "assets/export/capacity-certification.json",
+  "capacity_certification_manifest_sha256": "40be0acc9f65ad218f2d6afe50ed7265878335f7e10c80d7c733a945e5682055",
+  "toolchain_identity": "assets/export/toolchain-identity.json",
+  "evidence": {
+    "physical_capacity": "reports/stages/v3/S13/linux-renderer-r7/output",
+    "queue_PG": "reports/stages/v3/S13/exports-controls-r3/output/verification.json",
+    "actual_worker": "reports/stages/v3/S13/actual-export-worker-r4/verification.json",
+    "renderer_deadline_control": "reports/stages/v3/S13/renderer-deadline-r2/verification.json",
+    "worker_deadline_control": "reports/stages/v3/S13/worker-deadline-r2/verification.json"
+  },
+  "not_verified": [
+    "live LLM G-LONGFORM",
+    "main application/browser composition",
+    "Cloud Run Jobs API",
+    "real GCS deployment",
+    "Microsoft font equivalence"
+  ],
+  "actual_model_requests": 0,
+  "host_adapter_sha256": "691bf7c37c5f8af645c9ae65d0aa29b491a11b7a428fd7a3e7feb1223df1a51b",
+  "host_worker_sha256": "9d419ad8d8e749c518b66dabe735ce358a266e4e87d288160572d97303c82e3c"
+}
