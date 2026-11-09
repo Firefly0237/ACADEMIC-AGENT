@@ -68,6 +68,7 @@ class SavedPaperNoteDelete(Strict):
 class PaperActivity(Strict):
     operation_id: ID
     paper: PaperLocator
+    kind: Literal["view", "download_requested"] = Field(default="view", exclude_if=lambda value: value == "view")
 
 
 class SavedPaperDTO(Strict):

@@ -130,6 +130,8 @@ class QA5:
                 "validate_author", "review", "validate_review", "repair", "finalize"))
         for name in nodes:
             builder.add_node(name, graph.observed_node(self.phase_prefix + name, getattr(self, name)))
+        for name in self.extra_nodes():
+            builder.add_node(name, graph.observed_node(self.phase_prefix + name, getattr(self, name)))
         if self.independent_plan_review:
             builder.add_node("review_plan", graph.observed_node(
                 getattr(self, "plan_review_phase", "stance2_review_plan"), self.review_plan))
@@ -152,10 +154,21 @@ class QA5:
         builder.add_conditional_edges("validate_review", lambda s: "clarify" if self.requirements_only and s["qa5"].get("goal_clarification") else
             "finalize" if s["qa5"]["terminal"] else "repair", ["finalize", "repair", "clarify"] if self.requirements_only else ["finalize", "repair"])
         builder.add_conditional_edges("repair", lambda s: "finalize" if s["qa5"]["terminal"] else s["qa5"]["target"],
-            ["finalize", "plan", "review"] if self.requirements_only else
-            ["finalize", "plan", "author", "review", "review_plan"] if self.independent_plan_review else ["finalize", "plan", "author", "review"])
+            list(self.repair_routes()))
+        self.extra_workflow_edges(builder)
         builder.add_edge("finalize", END)
         self.workflow = builder.compile(checkpointer=checkpointer)
+
+    def extra_nodes(self):
+        return ()
+
+    def repair_routes(self):
+        return (("finalize", "plan", "review") if self.requirements_only else
+                ("finalize", "plan", "author", "review", "review_plan") if self.independent_plan_review
+                else ("finalize", "plan", "author", "review"))
+
+    def extra_workflow_edges(self, builder):
+        """Trusted subclasses can extend the graph without changing old profiles."""
 
     def key(self, data, role):
         return str(self.graph.execution.command["id"]) + ":qa5:" + role + ":" + str(data["revision"])

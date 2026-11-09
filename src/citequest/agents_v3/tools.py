@@ -81,6 +81,53 @@ def require_atomic_stance_review(execution: Execution, binding: dict) -> None:
         raise AgentError("stance2_independent_plan_review_provenance_invalid") from None
 
 
+def require_supplement_planning(execution: Execution, binding: dict, supplement: dict,
+                                name: str, arguments: dict) -> None:
+    """Bind a corrective query to its own known planner, never the old plan."""
+    from citequest.research_v3.typed_feedback import strict_object
+
+    from .product_profiles import qa_retrieval_protocol
+    from .provider import output_text
+    from .qa_adaptive_contracts import PROTOCOL, SUPPLEMENT_SCHEMA_NAME, validate_supplement_plan
+
+    try:
+        if qa_retrieval_protocol(execution.snapshot()) != PROTOCOL or name != "search_chunk_evidence":
+            raise ValueError("supplemental planning is not enabled for this operation")
+        required = {"attempt_id", "request_sha256", "plan_sha256", "candidate_sha256", "base_key"}
+        if not isinstance(supplement, dict) or set(supplement) != required:
+            raise ValueError("complete supplemental receipt required")
+        if (any(not isinstance(supplement[key], str) or re.fullmatch(r"[a-f0-9]{64}", supplement[key]) is None
+                for key in ("request_sha256", "plan_sha256", "candidate_sha256"))
+                or supplement["candidate_sha256"] != binding["candidate_sha256"]):
+            raise ValueError("supplemental goal identity changed")
+        prefix = re.escape(str(execution.command["id"]) + ":qa5:supplement_plan:")
+        if not isinstance(supplement["base_key"], str) or re.fullmatch(prefix + r"(0|[1-9][0-9]*)", supplement["base_key"]) is None:
+            raise ValueError("supplemental planner belongs to another command")
+        identifier = UUID(supplement["attempt_id"])
+        with execution.database.connect() as db:
+            row = db.execute("""SELECT id,kind,status,request_hash,usage,error_code,request,response,logical_key
+                FROM cq_app.agent_attempts WHERE task_id=%s AND id=%s""", (execution.task_id, identifier)).fetchone()
+        if (not row or row["kind"] != "model" or row["status"] != "settled" or row["usage"] is None
+                or row["error_code"] is not None or row["request_hash"] != supplement["request_sha256"]
+                or digest(row["request"]) != supplement["request_sha256"]
+                or row["logical_key"] != execution.effective_model_source_key(supplement["base_key"])
+                or row["request"]["text"]["format"]["name"] != SUPPLEMENT_SCHEMA_NAME):
+            raise ValueError("supplemental planner receipt is not settled and bound")
+        prompt = strict_object(row["request"]["input"][0]["content"])
+        contract = prompt["adaptive_retrieval_contract"]
+        if contract["candidate_sha256"] != binding["candidate_sha256"]:
+            raise ValueError("supplemental planner changed reviewed requirements")
+        plan = validate_supplement_plan(strict_object(output_text(row["response"])),
+            candidate_sha256=contract["candidate_sha256"], evidence_sha256=contract["evidence_sha256"],
+            target_requirement_ids=contract["target_requirement_ids"], existing_ref_ids=contract["existing_ref_ids"],
+            allowed_limits=contract["allowed_limits"])
+        if (plan.action != "retrieve" or digest(plan.model_dump()) != supplement["plan_sha256"]
+                or arguments != plan.queries[0].model_dump()):
+            raise ValueError("tool arguments differ from the settled supplemental plan")
+    except (AgentError, KeyError, TypeError, ValueError, AttributeError):
+        raise AgentError("qa_adaptive_tool_planning_provenance_invalid") from None
+
+
 class MCPTools:
     def __init__(self, execution: Execution, config_file: Path, *, lazy: bool = False) -> None:
         self.execution, self.config_file = execution, config_file
@@ -98,13 +145,33 @@ class MCPTools:
             raise AgentError("decisionrag_trusted_configuration_required")
         self.navigation_config = load_task_config(Path(path), sha) if path is not None else None
         self.navigation_config_sha256 = sha
+        from citequest.research_v3.rerank import load_config as load_rerank_config
+        rerank_path, rerank_sha = trusted.get("rerank_config_file"), trusted.get("rerank_config_sha256")
+        if (rerank_path is None) != (rerank_sha is None):
+            raise AgentError("rerank_trusted_configuration_required", 503)
+        self.rerank_config = load_rerank_config(Path(rerank_path), rerank_sha) if rerank_path is not None else None
+        self.rerank_config_sha256 = rerank_sha
+
+    @property
+    def rerank_enabled(self) -> bool:
+        from .product_profiles import retrieval_rerank_protocol
+        task = self.execution.snapshot()
+        requested = retrieval_rerank_protocol(task) is not None
+        if requested and (self.rerank_config is None
+                or self.rerank_config_sha256 != task["profile"]["rerank_config_sha256"]):
+            raise AgentError("rerank_runtime_configuration_not_bound", 503)
+        return requested
 
     @property
     def decisionrag_enabled(self) -> bool:
         from citequest.research_v3.decisionrag_task import task_requests_navigation
-        requested = task_requests_navigation(self.execution.snapshot())
+        from .product_profiles import evidence_navigation_protocol
+        task = self.execution.snapshot()
+        requested = task_requests_navigation(task)
         if requested and self.navigation_config is None:
             raise AgentError("decisionrag_runtime_not_configured")
+        if requested and self.navigation_config.navigation_protocol != evidence_navigation_protocol(task):
+            raise AgentError("decisionrag_task_runtime_protocol_mismatch")
         return requested
 
     @property
@@ -277,7 +344,7 @@ class MCPTools:
         }
         result = []
         for name, schema in sorted(self.catalog.items()):
-            if name == "navigate_issued_evidence":
+            if name == "navigate_issued_evidence" or name == "search_chunk_evidence" and self.rerank_enabled:
                 schema = json.loads(json.dumps(schema))
                 schema.get("properties", {}).pop("remaining_ms", None)
                 schema["required"] = [field for field in schema.get("required", []) if field != "remaining_ms"]
@@ -291,30 +358,45 @@ class MCPTools:
         if not isinstance(arguments, dict) or set(arguments) - TOOL_ARGUMENTS[name]:
             raise AgentError("mcp_arguments_not_allowed")
         navigation = name == "navigate_issued_evidence"
+        reranking = name == "search_chunk_evidence" and self.rerank_enabled
         if navigation and not self.decisionrag_enabled:
             raise AgentError("decisionrag_Task_profile_not_enabled")
-        Draft202012Validator(self.catalog[name]).validate({**arguments, "remaining_ms": 1} if navigation else arguments)
+        Draft202012Validator(self.catalog[name]).validate({**arguments, "remaining_ms": 1} if navigation or reranking else arguments)
         if name not in FREE_READ_TOOLS | LOCAL_COMPUTE_TOOLS:
             raise AgentError("unclassified_tool_effect")
         request = {"name": name, "arguments": arguments,
-            "effect": LOCAL_COMPUTE_EFFECT if navigation else FREE_READ_EFFECT}
+            "effect": LOCAL_COMPUTE_EFFECT if navigation or reranking else FREE_READ_EFFECT}
         if navigation:
-            request["local_compute"] = {"navigation_protocol": "laya1", "max_forward_calls": 2,
+            request["local_compute"] = {"navigation_protocol": self.navigation_config.navigation_protocol,
+                "max_forward_calls": self.navigation_config.max_forward_calls,
                 "configuration_sha256": self.navigation_config_sha256,
                 "external_API_cash_ncny": 0, "deadline_source": "Execution.mark_sent_remaining_active_time"}
+            if self.navigation_config.navigation_protocol == "laya2":
+                request["local_compute"].update(maximum_frontier_refs=self.navigation_config.max_passages,
+                    max_batches_per_level=self.navigation_config.max_batches_per_level,
+                    probability_comparison="batch_screening_then_shared_final_rescore",
+                    physical_compute_cost_not_measured=True)
+        if reranking:
+            request["local_compute"] = {"rerank_protocol": "tei-cross-encoder1", "max_rerank_HTTP_requests": 1,
+                "maximum_pair_scores": self.rerank_config.maximum_candidates,
+                "configuration_sha256": self.rerank_config_sha256, "external_API_cash_ncny": 0,
+                "deadline_source": "Execution.mark_sent_remaining_active_time"}
         task = self.execution.snapshot()
         qa5 = uses_typed_chunk_tools(task)
         if qa5:
+            base_planning = dict(planning_context) if isinstance(planning_context, dict) else planning_context
+            supplemental = isinstance(base_planning, dict) and "supplement_planning" in base_planning
+            supplement = base_planning.pop("supplement_planning", None) if isinstance(base_planning, dict) else None
             required = {"planner_attempt_id", "planner_request_sha256", "candidate_sha256", "plan_sha256"}
             if task["profile"]["profile_id"] in {"stance-v2", "stance-v3"}:
                 required |= {"plan_review_attempt_id", "plan_review_request_sha256", "claim_plan_sha256"}
-            if not isinstance(planning_context, dict) or set(planning_context) != required:
+            if not isinstance(base_planning, dict) or set(base_planning) != required:
                 raise AgentError("qa5_tool_planning_provenance_required")
-            if any(not isinstance(planning_context[key], str) or re.fullmatch(r"[a-f0-9]{64}", planning_context[key]) is None
+            if any(not isinstance(base_planning[key], str) or re.fullmatch(r"[a-f0-9]{64}", base_planning[key]) is None
                    for key in required - {"planner_attempt_id", "plan_review_attempt_id"}):
                 raise AgentError("qa5_tool_planning_provenance_invalid")
             try:
-                planner_id = UUID(planning_context["planner_attempt_id"])
+                planner_id = UUID(base_planning["planner_attempt_id"])
             except (ValueError, TypeError):
                 raise AgentError("qa5_tool_planning_provenance_invalid") from None
             with self.execution.database.connect() as db:
@@ -322,11 +404,13 @@ class MCPTools:
                     request->'text'->'format'->>'name' AS role FROM cq_app.agent_attempts
                     WHERE id=%s AND task_id=%s""", (planner_id,self.execution.task_id)).fetchone()
             if (not parent or parent["kind"] != "model" or parent["status"] != "settled" or parent["usage"] is None
-                    or parent["error_code"] is not None or parent["request_hash"] != planning_context["planner_request_sha256"]
+                    or parent["error_code"] is not None or parent["request_hash"] != base_planning["planner_request_sha256"]
                     or parent["role"] != "citequest_qa5_plan"):
                 raise AgentError("qa5_tool_planning_attempt_not_settled_or_bound")
             if task["profile"]["profile_id"] in {"stance-v2", "stance-v3"}:
-                require_atomic_stance_review(self.execution, planning_context)
+                require_atomic_stance_review(self.execution, base_planning)
+            if supplemental:
+                require_supplement_planning(self.execution, base_planning, supplement, name, arguments)
             request["structured_planning"] = {**planning_context, "vendor_call_id":"not_applicable_structured_planning"}
         elif planning_context is not None:
             raise AgentError("planning_provenance_not_enabled_for_legacy_tool_protocol")
@@ -337,6 +421,7 @@ class MCPTools:
             return attempt["response"]
         settled = False
         received = False
+        body = None
         try:
             if qa5:
                 self.execution.scope_event("tool_plan_bound", {"tool_execution_id":str(attempt["id"]),
@@ -348,6 +433,9 @@ class MCPTools:
                 wire_arguments = {**arguments, "remaining_ms": max(1, min(25000,
                     self.navigation_config.active_seconds * 1000, int(seconds * 1000)))}
                 self.execution.progress("decisionrag_navigation", "started")
+            if reranking:
+                wire_arguments = {**arguments, "remaining_ms": max(1, min(30000, int(seconds * 1000)))}
+                self.execution.progress("cross_encoder_rerank", "started")
             result = await asyncio.wait_for(self.session.call_tool(name, wire_arguments), min(seconds, 30))
             received = True
             if result.isError:
@@ -360,13 +448,31 @@ class MCPTools:
                 if len(texts) != 1:
                     raise AgentError("mcp_result_structure_invalid")
                 body = json.loads(texts[0])
-            research_v5 = task["kind"] == "research" and task["profile"].get("profile_id") == "research-v5"
+            research_v5 = task["kind"] == "research" and task["profile"].get("profile_id") in {"research-v5", "research-v6"}
             if not isinstance(body, dict) or len(canonical(body)) > (131072 if qa5 or research_v5 else 32000):
                 raise AgentError("mcp_result_byte_limit")
+            if reranking:
+                from citequest.research_v3.rerank import validate_receipt
+                validate_receipt(body, arguments["query"], self.rerank_config, self.rerank_config_sha256)
             if navigation:
                 usage = body.get("local_usage") or {}
                 refs, trace = body.get("evidence_ref_ids"), body.get("trace")
-                if (body.get("status") != "ok" or body.get("navigation_protocol") != "laya1"
+                if self.navigation_config.navigation_protocol == "laya2":
+                    from citequest.research_v3.decisionrag_task import validate_task_receipt
+                    validate_task_receipt(self.navigation_config, body, arguments["ref_ids"])
+                    if body["status"] == "error":
+                        code = body["error_code"]
+                        # A response observation does not establish complete
+                        # native usage. Preserve partial receipts privately.
+                        received = False
+                        self.execution.observe_tool_receipt(attempt["id"], body)
+                        if body.get("unknown_outcome") is True:
+                            self.execution.unknown(attempt["id"], code)
+                        else:
+                            self.execution.settle(attempt["id"], body, None)
+                        settled = True
+                        raise AgentError(code)
+                elif (body.get("status") != "ok" or body.get("navigation_protocol") != "laya1"
                         or body.get("input_frontier_ref_ids") != arguments["ref_ids"]
                         or not isinstance(refs, list) or not refs or len(set(refs)) != len(refs)
                         or not set(refs) <= set(arguments["ref_ids"])
@@ -382,10 +488,19 @@ class MCPTools:
             self.execution.snapshot()
             if navigation:
                 self.execution.progress("decisionrag_navigation", "completed")
+            if reranking:
+                self.execution.progress("cross_encoder_rerank", "completed")
             return body
         except BaseException as exc:
             if not settled:
-                if received:
+                if navigation and self.navigation_config.navigation_protocol == "laya2":
+                    code = exc.code if isinstance(exc, AgentError) else type(exc).__name__
+                    try:
+                        if received and isinstance(body, dict):
+                            self.execution.observe_tool_receipt(attempt["id"], body)
+                    finally:
+                        self.execution.unknown(attempt["id"], code)
+                elif received:
                     code = exc.code if isinstance(exc, AgentError) else "mcp_terminal_result_invalid"
                     self.execution.settle(attempt["id"], {"status": "error", "error_code": code}, None)
                 else:

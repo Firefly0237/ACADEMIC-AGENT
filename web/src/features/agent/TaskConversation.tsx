@@ -16,8 +16,9 @@ type Turn = {
 };
 type Page = { items: Turn[]; next_after_seq: number | null };
 
-export function TaskConversation({ taskId, revision, state, onUnavailable }: {
+export function TaskConversation({ taskId, revision, state, onUnavailable, selectedReferenceSeq, onReferenceSelect, referenceDisabled = false }: {
   taskId: string; revision: number; state: string; onUnavailable?: (failure: APIError) => void;
+  selectedReferenceSeq?: number | null; onReferenceSelect?: (commandSeq: number) => void; referenceDisabled?: boolean;
 }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -67,7 +68,14 @@ export function TaskConversation({ taskId, revision, state, onUnavailable }: {
       <header><strong>{turn.command_kind === "start" ? "首次提问" : turn.command_kind === "resume" ? "补充信息" : "追问"}</strong>
         <small> · 提交序号 {turn.command_seq} · {turn.state === "done" ? "本轮已结束" : taskStateText(turn.state)}{turn.created_at ? ` · ${new Date(turn.created_at).toLocaleString("zh-CN")}` : ""}</small></header>
       <div className="conversation-question"><Markdown text={turn.user_text} /></div>
-      {turn.answer && ["available", "available_for_input"].includes(turn.answer_availability) ? <details className="conversation-answer">
+      {onReferenceSelect && turn.answer_availability === "available" && turn.answer
+        && (turn.answer.claims?.length || turn.answer.comparisons?.length
+          || turn.answer.documents?.some(document => document.summary?.claims.length))
+        ? <button disabled={referenceDisabled || busy} aria-pressed={selectedReferenceSeq === turn.command_seq}
+          onClick={() => onReferenceSelect(turn.command_seq)}>
+          {selectedReferenceSeq === turn.command_seq ? "已选为本轮指代" : "本轮引用此回答"}
+        </button> : null}
+      {turn.answer && ["available", "available_for_input", "available_diagnostics"].includes(turn.answer_availability) ? <details className="conversation-answer">
         <summary>查看本轮已保存回答</summary>
         <TaskAnswer taskId={taskId} result={turn.answer} historical />
       </details> : <p className="muted">{turn.answer_availability === "not_retained"

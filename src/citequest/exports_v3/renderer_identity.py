@@ -12,6 +12,8 @@ import pypandoc
 from citequest.research_v3.school_contracts import CSL_SHA, TEMPLATE_SHA
 from citequest.research_v3.school_linux import FONT_MAPPING, PROFILE_ID
 
+from .release_build import sha256, source_files
+
 
 def actual_identity() -> dict:
     fonts = {}
@@ -24,8 +26,14 @@ def actual_identity() -> dict:
             raise ValueError("pinned_open_font_family_unavailable")
         fonts[family] = {"family": matched, "sha256": hashlib.sha256(Path(filename).read_bytes()).hexdigest()}
     root = Path(__file__).resolve().parents[2]
+    sources = source_files(Path("/app"))
+    packages = subprocess.run(
+        ["dpkg-query", "-W", "-f=${Package}\t${Version}\n"],
+        capture_output=True, text=True, check=True, timeout=10,
+    ).stdout.splitlines()
     files = [
         Path("/usr/bin/soffice"),
+        Path("/usr/bin/pdftoppm"),
         Path("/usr/lib/libreoffice/program/soffice.bin"),
         Path("/usr/lib/libreoffice/program/libsmlo.so"),
         Path("/usr/lib/libreoffice/share/registry/math.xcd"),
@@ -35,12 +43,16 @@ def actual_identity() -> dict:
         Path(__file__).with_name("bibliography.py"),
         root / "citequest/research_v3/school_export.py",
         root / "citequest/research_v3/school_contracts.py",
+        root / "citequest/research_v3/school_profiles.py",
         root / "citequest/research_v3/school_linux.py",
         root / "citequest/agents_v3/contracts.py",
         Path("/app/scripts/s13/bundle_entry.py"),
     ]
     return {
         "schema_version": "citequest-offline-school-toolchain/1",
+        "source_files_sha256": sources,
+        "source_sha256": sha256(sources),
+        "debian_packages": sorted(packages),
         "font_profile": PROFILE_ID,
         "file_sha256": {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in files},
         "fonts": fonts,

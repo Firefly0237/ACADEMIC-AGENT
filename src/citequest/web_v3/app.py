@@ -23,6 +23,8 @@ from citequest.materials_v2.models import MaterialUpload
 from citequest.materials_v2.services import MaterialService
 from citequest.search_v3.router import search_router
 from citequest.search_v3.service import SearchService
+from citequest.search_v3.query_projection import MaterialSimilarInput
+from citequest.search_v3.schemas import SearchRequest
 from citequest.v2.domain import Actor, DomainError
 from citequest.v2.models import File, Work, WorkAccess, WorkVersion
 from citequest.v2.pagination import Pager
@@ -192,6 +194,25 @@ def create_app(
         with factory.begin() as db:
             material._source(db, actor, file_id)
         return material.native_index.enqueue(actor, file_id)
+
+    @app.post("/api/v3/materials/{file_id}/similar")
+    def similar_material(file_id: UUID, body: MaterialSimilarInput, actor: PrivateActor) -> dict:
+        material = getattr(app.state, "material_evidence_service", None)
+        if material is None:
+            raise DomainError("material_source_not_configured", 503)
+        prepared = material.query_projection(actor, file_id, query=body.query, selection=body.selection,
+            expected_source=body.expected_source)
+        if body.action == "prepare":
+            return {**prepared, "page": None, "model_calls": 0}
+        projection = prepared["projection"]
+        if projection is None:
+            raise DomainError("material_similarity_query_required", 422)
+        page = search.search(actor, SearchRequest(q=projection.query, catalog=body.catalog, mode=body.mode,
+            page_size=body.page_size, candidate_limit=body.candidate_limit))
+        page = search.exclude_similarity_source(actor, page.snapshot_id,
+            work_id=UUID(projection.source.work_id) if projection.source.work_id else None, projection=projection)
+        material.verify_query_projection(actor, file_id, projection)
+        return {**prepared, "page": page, "model_calls": 0}
 
     @app.get("/api/v3/materials")
     def material_list(

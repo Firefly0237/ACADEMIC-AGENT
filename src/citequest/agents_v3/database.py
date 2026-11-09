@@ -13,7 +13,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from .contracts import AgentError, PROFILES, RuntimeLimits, TaskCommand, TaskCreate, canonical, digest, redact
+from .contracts import AgentError, DIALOGUE_REFERENCE_PROFILE_IDS, PROFILES, RuntimeLimits, TaskCommand, TaskCreate, canonical, digest, redact
 from .capabilities import free_read_attempt
 from . import dispatch as dispatch_control
 from . import catalog_scope
@@ -179,7 +179,7 @@ class TaskService:
         if campaign is not None:
             profile[campaign_control.BINDING_KEY] = campaign.task_binding()
         graph_version = catalog_scope.graph_version(request.kind, request.profile_id, self.database.catalog_scope_policy,
-            profile.get("review_transport_protocol"), profile.get("qa_execution_protocol"), profile.get("review_api_protocol"), profile.get("structured_output_protocol"), profile.get("answer_revision_protocol"), profile.get("qa_context_protocol"), profile.get("qa_content_protocol"), profile.get("evidence_navigation_protocol"))
+            profile.get("review_transport_protocol"), profile.get("qa_execution_protocol"), profile.get("review_api_protocol"), profile.get("structured_output_protocol"), profile.get("answer_revision_protocol"), profile.get("qa_context_protocol"), profile.get("qa_content_protocol"), profile.get("evidence_navigation_protocol"), profile.get("retrieval_rerank_protocol"), profile.get("rerank_config_sha256"), profile.get("qa_retrieval_protocol"))
         preview = ({"id": active_policy.target.task_id, "owner_id": owner, "project_id": request.project_id,
             "operation_id": request.operation_id, "create_hash": request_hash, "kind": request.kind,
             "profile": profile, "profile_hash": digest(profile), "graph_version": graph_version} if active_policy is not None else None)
@@ -206,6 +206,24 @@ class TaskService:
                 raise AgentError("qa5_requires_task_catalog_snapshot_policy", 503)
             if self.new_task_profile_policy is not None:
                 self.new_task_profile_policy.admit(request)
+            elif request.profile_id in {"research-review-v1", "research-revision-v1"}:
+                raise AgentError("research_auxiliary_action_not_enabled", 503)
+            if request.profile_id in {"research-review-v1", "research-revision-v1"}:
+                # wallet_locks above serializes admission across clients and
+                # refreshes. Original operation replays already returned above.
+                report = (Jsonb(request.brief.revision_request.report.model_dump(mode="json"))
+                          if request.brief.revision_request is not None else None)
+                unresolved = db.execute("""SELECT 1 FROM cq_app.agent_tasks t
+                    WHERE t.owner_id=%s AND t.project_id=%s AND t.profile->>'profile_id'=%s
+                      AND t.brief->'review_source'=%s::jsonb
+                      AND (%s::jsonb IS NULL OR t.brief->'revision_request'->'report'=%s::jsonb)
+                      AND (t.state IN ('queued','running','waiting_input','reconciling') OR EXISTS (
+                        SELECT 1 FROM cq_app.agent_attempts a WHERE a.task_id=t.id
+                          AND a.status IN ('reserved','sent','unknown'))) LIMIT 1""",
+                    (owner, request.project_id, request.profile_id,
+                     Jsonb(request.brief.review_source.model_dump(mode="json")), report, report)).fetchone()
+                if unresolved:
+                    raise AgentError("research_source_action_already_pending_or_unknown", 409)
             if request.profile_id in {"qa-v7", "qa-v8", "qa-v9"}:
                 from .product_profiles import qa_execution_protocol
                 qa_execution_protocol({"kind": request.kind, "profile": profile})
@@ -216,8 +234,15 @@ class TaskService:
             for expired in dispatch_control.expire_queued(db, policy):
                 event(db, expired["id"], "queue_deadline_expired", {"command_id": str(expired["command_id"]), "error_code": expired["error_code"]})
             dispatch_control.research_admit(db, request.kind, policy)
-            from .research_runtime import admit_research
-            admit_research(db, owner, request.project_id, request.brief)
+            if request.profile_id == "research-review-v1":
+                from .research_history import review_admit
+                review_admit(db, owner, request.project_id, request.brief)
+            elif request.profile_id == "research-revision-v1":
+                from .research_history import revision_admit
+                revision_admit(db, owner, request.project_id, request.brief)
+            else:
+                from .research_runtime import admit_research
+                admit_research(db, owner, request.project_id, request.brief)
             if request.brief.selected_skills:
                 from .user_skills import activate_for_task
                 activate_for_task(self.database, {"owner_id": owner, "project_id": request.project_id,
@@ -284,6 +309,17 @@ class TaskService:
                 raise AgentError("research_brief_requires_research_task", 400)
             if (request.research_action is not None or request.research_help_fields is not None or request.research_extract_fields is not None) and task["kind"] != "research":
                 raise AgentError("research_action_requires_research_task", 400)
+            if request.research_action == "experiment" and task["profile"].get("profile_id") != "research-v6":
+                raise AgentError("experiment_design_requires_research_v6", 400)
+            review_task = task["profile"].get("profile_id") in {"research-review-v1", "research-revision-v1"}
+            fixed_action = "review" if task["profile"].get("profile_id") == "research-review-v1" else "revise"
+            if review_task and request.kind != "cancel" and (
+                    request.research_action not in {None, fixed_action} or
+                    (request.selected_skills is not None and [item.model_dump(mode="json") for item in request.selected_skills]
+                     != task["brief"].get("selected_skills", [])) or
+                    (request.research_brief is not None and
+                     request.research_brief.model_dump(mode="json") != task["brief"]["research_brief"])):
+                raise AgentError("research_review_source_is_immutable", 409)
             if request.kind == "cancel":
                 db.execute("UPDATE cq_app.agent_tasks SET cancellation_requested=true WHERE id=%s", (task_id,))
                 if task["state"] != "running":
@@ -300,6 +336,14 @@ class TaskService:
                     raise AgentError("agent_command_not_admissible")
                 if db.execute("SELECT 1 FROM cq_app.agent_attempts WHERE task_id=%s AND status IN ('reserved','sent','unknown')", (task_id,)).fetchone():
                     raise AgentError("agent_attempt_unresolved")
+                if request.reference_turn_seq is not None:
+                    if task["profile"]["profile_id"] not in DIALOGUE_REFERENCE_PROFILE_IDS:
+                        raise AgentError("task_profile_does_not_support_turn_references", 400)
+                    previous_command = db.execute("""SELECT id FROM cq_app.agent_commands
+                        WHERE task_id=%s AND owner_id=%s AND seq=%s AND kind <> 'cancel' AND state='done'""",
+                        (task_id, owner, request.reference_turn_seq)).fetchone()
+                    if previous_command is None:
+                        raise AgentError("reference_turn_not_completed", 422)
                 wallet_admit(db, self.limits, owner, task["project_id"], activate_task=True,
                     development_active_policy=active_policy, development_active_target=task,
                     development_active_operation_id=request.operation_id, development_active_command_kind=request.kind,
@@ -309,9 +353,13 @@ class TaskService:
                     event(db, expired["id"], "queue_deadline_expired", {"command_id": str(expired["command_id"]), "error_code": expired["error_code"]})
                 dispatch_control.research_admit(db, task["kind"], policy)
                 brief = {**task["brief"], "question": request.message}
+                # The selector applies to one submitted turn, never to a later follow-up by inheritance.
+                brief.pop("reference_turn_seq", None)
+                if request.reference_turn_seq is not None:
+                    brief["reference_turn_seq"] = request.reference_turn_seq
                 if request.requested_direction is not None:
                     brief["requested_direction"] = request.requested_direction
-                if request.research_brief is not None:
+                if request.research_brief is not None and not review_task:
                     from .research_runtime import bind_reference
                     document = bind_reference(db, owner, task["project_id"], request.research_brief)
                     if str(document.id) != task["brief"]["research_brief"]["id"]:
@@ -356,6 +404,7 @@ class TaskService:
     def public(task: dict, *, catalog_scope_policy: catalog_scope.CatalogScopePolicy | None = None,
                development_campaign_policy: campaign_control.DevelopmentCampaign | None = None) -> dict:
         value = {key: task[key] for key in ("id", "project_id", "kind", "brief", "profile", "revision", "state", "model_calls", "tool_calls", "input_tokens", "output_tokens", "known_ncny", "reserved_ncny", "active_seconds", "result", "error_code", "event_seq", "cancellation_requested")}
+        value["command_seq"] = task["command_seq"]
         value.update(runtime_version=task["graph_version"], runtime_availability="current" if
             catalog_scope.readable_runtime(task)
             else "pinned_legacy_runtime_required")
@@ -691,7 +740,7 @@ class Execution:
         request_hash = digest(identity)
         with self.database.connect() as db:
             task = self.lock_task(db)
-            if task["profile"].get("profile_id") not in {"workset-v3", "workset-v4", "workset-v5", "workset-v6", "workset-v7", "qa-v4", "qa-v5", "qa-v6", "qa-v7", "qa-v8", "qa-v9", "research-v3", "research-v4", "research-v5", "stance-v2", "stance-v3"}:
+            if task["profile"].get("profile_id") not in {"workset-v3", "workset-v4", "workset-v5", "workset-v6", "workset-v7", "qa-v4", "qa-v5", "qa-v6", "qa-v7", "qa-v8", "qa-v9", "research-v3", "research-v4", "research-v5", "research-v6", "research-revision-v1", "stance-v2", "stance-v3"}:
                 raise AgentError("content_revision_profile_not_enabled")
             rows = db.execute("""SELECT payload FROM cq_app.agent_events
                 WHERE task_id=%s AND event_type='content_revision_reserved' ORDER BY seq""",
@@ -753,6 +802,41 @@ class Execution:
             if not completed:
                 return None
             return {"request": row["request"], "request_hash": row["request_hash"]}
+
+    def settled_tool_keys(self, logical_keys: list[str]) -> set[str]:
+        """Count known charged replay keys without authorizing cached sources."""
+        if (not isinstance(logical_keys, list) or len(logical_keys) > 128
+                or any(not isinstance(key, str) or not 1 <= len(key) <= 256
+                       or not key.startswith(str(self.command["id"]) + ":") for key in logical_keys)):
+            raise AgentError("settled_tool_command_identity_invalid")
+        keys = list(dict.fromkeys(logical_keys))
+        if not keys:
+            return set()
+        with self.database.connect() as db:
+            self.lock_task(db)
+            rows = db.execute("""SELECT logical_key FROM cq_app.agent_attempts
+                WHERE task_id=%s AND kind='tool' AND logical_key=ANY(%s) AND status='settled'
+                AND error_code IS NULL AND jsonb_typeof(response)='object'""", (self.task_id, keys)).fetchall()
+            return {row["logical_key"] for row in rows}
+
+    def settled_model_receipts(self, logical_keys: list[str]) -> dict[str, dict]:
+        """One current-owner read for immutable handoff links in this command."""
+        if (not isinstance(logical_keys, list) or len(logical_keys) > 128
+                or any(not isinstance(key, str) or not 1 <= len(key) <= 256
+                       or not key.startswith(str(self.command["id"]) + ":") for key in logical_keys)):
+            raise AgentError("handoff_receipt_command_identity_invalid")
+        keys = list(dict.fromkeys(logical_keys))
+        if not keys:
+            return {}
+        from .model_receipts import model_receipt
+        with self.database.connect() as db:
+            task = self.lock_task(db)
+            rows = db.execute("""SELECT id,logical_key,request,request_hash,response,usage,status,error_code
+                FROM cq_app.agent_attempts WHERE task_id=%s AND kind='model' AND logical_key=ANY(%s)""",
+                (self.task_id, keys)).fetchall()
+            if {row["logical_key"] for row in rows} != set(keys):
+                raise AgentError("handoff_model_receipt_not_found")
+            return {row["logical_key"]: model_receipt(row, row["logical_key"], task["profile"]) for row in rows}
 
     def observe_model_wire(self, attempt_id: UUID, metadata: dict) -> dict:
         """Bind the trusted strict-review adapter and actual SDK bytes before send."""
@@ -1118,6 +1202,36 @@ class Execution:
                 "physical_HTTP_started": False, "usage": None, "reservation_released_ncny": attempt["reserved_ncny"],
                 "model_attempt_counter_retained": True})
             return True
+
+    def observe_tool_receipt(self, attempt_id: UUID, response: dict) -> None:
+        """Retain a partial tool receipt without settling unknown computation.
+
+        This adapter-only observation accepts a late response from the original
+        physical attempt. It grants no graph, source, retry or accounting rights.
+        """
+        if not isinstance(response, dict):
+            raise AgentError("tool_receipt_object_required")
+        sanitized = redact(response)
+        if len(canonical(sanitized)) > 1048576:
+            raise AgentError("tool_receipt_too_large")
+        with self.database.connect() as db:
+            task_wallet_locks(db, self.task_id)
+            db.execute("SELECT id FROM cq_app.agent_tasks WHERE id=%s FOR UPDATE", (self.task_id,)).fetchone()
+            attempt = db.execute("SELECT * FROM cq_app.agent_attempts WHERE id=%s AND task_id=%s FOR UPDATE",
+                                 (attempt_id, self.task_id)).fetchone()
+            if (not attempt or attempt["kind"] != "tool" or attempt["run_id"] != self.run_id
+                    or attempt["epoch"] != self.epoch or attempt["sent_at"] is None
+                    or attempt["status"] not in {"sent", "unknown"}):
+                raise AgentError("tool_receipt_attempt_identity_invalid")
+            if attempt["response"] is not None:
+                if attempt["response"] != sanitized:
+                    raise AgentError("receipt_conflict")
+                return
+            db.execute("UPDATE cq_app.agent_attempts SET response=%s WHERE id=%s AND task_id=%s",
+                       (Jsonb(sanitized), attempt_id, self.task_id))
+            event(db, self.task_id, "tool_partial_receipt_observed", {
+                "attempt_id": str(attempt_id), "receipt_sha256": digest(sanitized),
+                "outcome": "observed_not_settled"})
 
     def unknown(self, attempt_id: UUID, error_code: str) -> None:
         with self.database.connect() as db:

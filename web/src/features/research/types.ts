@@ -50,6 +50,19 @@ export type BriefProposal = {
   kind: "conflict" | "suggestion";
   state: "open" | "accepted" | "discarded" | "superseded";
 };
+export type MaterialBibliography = {
+  file_id: string;
+  file_sha256: string;
+  representation_id: string;
+  title: string;
+  authors: string[];
+  year: number;
+  doi?: string;
+  source_url?: string;
+  confirmed: true;
+  provenance: "user_confirmed";
+  confirmation_message_id?: string;
+};
 export type BriefDocument = {
   id: string;
   project_id: string;
@@ -58,7 +71,22 @@ export type BriefDocument = {
   proposals: BriefProposal[];
   selected_sources: EvidenceSelection[];
   draft_source_ids?: string[];
+  material_bibliography?: Record<string, MaterialBibliography> | null;
+  school_profile_id?: string | null;
 };
+export type SchoolProfileOption = {
+  id: string;
+  label: string;
+  source_url: string;
+  template_source_url: string | null;
+  template_sha256: string;
+  section_titles: string[];
+  literature_minimum_han: number;
+  literature_requirement_source_url: string | null;
+  demonstration_minimum_han: number;
+  demonstration_maximum_han: number;
+};
+export type SchoolProfiles = { default_id: string; profiles: SchoolProfileOption[] };
 export type BriefSnapshot = {
   brief: BriefDocument;
   brief_sha256: string;
@@ -70,6 +98,14 @@ export type BriefSnapshot = {
     open_conflicts: string[];
     model_calls_required: number;
     school_format_ready: boolean;
+    missing_material_bibliography?: string[];
+    experiment_readiness?: {
+      state: "needs_input" | "ready_for_experiment";
+      missing_fields: BriefField[];
+      questions: Array<{ field: BriefField; question: string }>;
+      open_conflicts: string[];
+      model_calls_required: 0;
+    };
   };
 };
 export type BriefSummary = {
@@ -89,6 +125,7 @@ export type PlanningInput = {
   explicit_unknowns: Record<string, string>;
   selected_sources: EvidenceSelection[];
   draft_source_ids?: string[];
+  school_profile_id?: string;
   research_status: "proposed_not_executed";
   school_format_ready: false;
 };
@@ -107,6 +144,7 @@ export type DraftExtraction = {
   completion_status?: string;
 };
 export type BriefHelpRequest = { brief: BriefDocument; fields: BriefField[] };
+export type ResearchStartAction = "plan" | "experiment";
 export type BriefEditorProps = {
   identity: Session;
   projectId: string;
@@ -115,6 +153,6 @@ export type BriefEditorProps = {
   onResearchHelp?: (
     request: BriefHelpRequest,
   ) => Promise<BriefSuggestion[] | void> | void;
-  onResearchStart?: (input: PlanningInput) => Promise<void> | void;
+  onResearchStart?: (input: PlanningInput, action?: ResearchStartAction) => Promise<void> | void;
   onResearchExtract?: (request: BriefHelpRequest) => Promise<void> | void;
 };

@@ -40,6 +40,8 @@ class LiteratureState(TypedDict, total=False):
     revision: int
     target: str
     source_model_key: str
+    author_model_key: str
+    review_model_key: str
     accepted: bool
     terminal: bool
     audit: list[dict]
@@ -120,7 +122,8 @@ class ResearchLiteratureFlow:
             data.update(validation_feedback=state["feedback"], repair_contract=RepairLock(**state["lock"]).contract(),
                         untrusted_previous_candidate=state["raw"])
         raw, key = self.send(state, reviewer=False, schema=self.grounding(state).author_schema(), data=data)
-        return {"raw": raw, "source_model_key": key}
+        return {"raw": raw, "source_model_key": key,
+            **({"author_model_key": key} if self.boundary.audited_handoffs() else {})}
 
     def validate_author(self, state: dict) -> dict:
         try:
@@ -159,7 +162,8 @@ class ResearchLiteratureFlow:
         if state["target"] == "review" and state["feedback"]:
             data.update(validation_feedback=state["feedback"], untrusted_previous_review=state["review_raw"])
         raw, key = self.send(state, reviewer=True, schema=grid.schema(), data=data)
-        return {"review_raw": raw, "source_model_key": key}
+        return {"review_raw": raw, "source_model_key": key,
+            **({"review_model_key": key} if self.boundary.audited_handoffs() else {})}
 
     def validate_review(self, state: dict) -> dict:
         grounding = self.grounding(state)
@@ -224,7 +228,10 @@ class ResearchLiteratureFlow:
             "review": state["review"], "audit": state["audit"], "source_protocol": grounding.scope.binding,
             "review_grid": {"binding": grounding.review_grid(ResearchAnswerV3.model_validate(state["candidate"], strict=True)).binding,
                 "opinions": state["review_grid_opinions"]} if state["accepted"] else None,
-            "revision_credits_local": state["revision"], "independent_review_required": True}}
+            "revision_credits_local": state["revision"], "independent_review_required": True,
+            **({"model_sources": {state["author_model_key"]: "citequest_research_literature_v3",
+                state["review_model_key"]: "citequest_research_literature_v3_review"}}
+                if self.boundary.audited_handoffs() and state["accepted"] else {})}}
 
     def run(self, anchor: dict) -> dict:
         return self.workflow.invoke({"anchor": anchor}, durability="sync")["outcome"]

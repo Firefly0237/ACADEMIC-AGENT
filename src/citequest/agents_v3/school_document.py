@@ -31,6 +31,7 @@ from citequest.research_v3.school_contracts import (
     section_wire_limit,
 )
 from citequest.research_v3.school_prompts import CROSS_REVIEWER, REQUEST_REVIEWER, SECTION_REVIEWER, WRITER
+from citequest.research_v3.school_profiles import get_profile
 
 from .contracts import AgentError, digest
 
@@ -47,6 +48,7 @@ class SchoolState(TypedDict, total=False):
     reference_admission: dict
     sections: dict[str, dict]
     section_model_keys: dict[str, str]
+    section_revision_scopes: dict[str, dict]
     reviews: dict[str, dict]
     review_history: list[dict]
     index: int
@@ -213,6 +215,7 @@ def make_specs(upstream: dict, claims: dict[str, dict], aliases: dict[str, list[
 
 
 class SchoolDocumentWorkflow:
+    STATE = SchoolState
     NODES = (
         "prepare",
         "write_section",
@@ -237,7 +240,7 @@ class SchoolDocumentWorkflow:
         self.profile = SchoolProfile()
         self.reference_preflight = reference_preflight
         self.allow_fixture_references = allow_fixture_references
-        builder = StateGraph(SchoolState)
+        builder = StateGraph(self.STATE)
         for name in self.NODES:
             builder.add_node(name, self.observe(name, getattr(self, name)))
             builder.add_conditional_edges(name, lambda state: state["next"], [*self.NODES, END])
@@ -310,6 +313,23 @@ class SchoolDocumentWorkflow:
         stage = self.profile.maximum_writing_model_calls - (current["model_calls"] - state["writing_start_model_calls"])
         return min(stage, current["profile"]["model_calls"] - current["model_calls"])
 
+    def initial_model_reserve(self, state: dict) -> int:
+        task = self.task()
+        minimum = 14 * 2 + 2
+        if task["profile"].get("profile_id") in {"research-v5", "research-v6"}:
+            minimum += 3 * max(0, 2 - self.host.execution.content_revision_count())
+        return minimum
+
+    def seed_sections(self, prepared: dict) -> dict:
+        """Trusted subclasses may reuse an explicitly bound already reviewed draft."""
+        return prepared
+
+    def initial_tool_reserve(self, state: dict, references: list[dict]) -> int:
+        return 2 * len(references)
+
+    def writer_preflight_specs(self, prepared: dict, specs: list[SectionSpec]) -> list[SectionSpec]:
+        return specs
+
     def prepare(self, state: dict) -> dict:
         upstream = state["upstream"]
         if (
@@ -323,16 +343,11 @@ class SchoolDocumentWorkflow:
             return self.partial(state, "upstream_research_intake_is_not_current")
         task = self.task()
         references = upstream["evidence_ledger"]
-        minimum_calls = 14 * 2 + 2
-        if task["profile"].get("profile_id") == "research-v5":
-            # These are the same shared credits reserved by outline admission,
-            # not a new allowance for School. A cross-section repair costs a
-            # writer, section reviewer and replacement cross review.
-            minimum_calls += 3 * max(0, 2 - self.host.execution.content_revision_count())
+        minimum_calls = self.initial_model_reserve(state)
         if task["profile"]["model_calls"] - task["model_calls"] < minimum_calls:
             return self.partial(state, "remaining_same_task_model_calls_below_complete_school_reserve"
-                if task["profile"].get("profile_id") == "research-v5" else "remaining_same_task_model_calls_below_30")
-        if task["profile"]["tool_calls"] - task["tool_calls"] < 2 * len(references):
+                if task["profile"].get("profile_id") in {"research-v5", "research-v6"} else "remaining_same_task_model_calls_below_30")
+        if task["profile"]["tool_calls"] - task["tool_calls"] < self.initial_tool_reserve(state, references):
             return self.partial(state, "remaining_same_task_tools_below_initial_and_final_source_readmission")
         if task["profile"]["output_tokens"] - task["output_tokens"] < minimum_calls * 2048:
             return self.partial(state, "remaining_same_task_output_below_reserved_full_writing_window")
@@ -342,6 +357,7 @@ class SchoolDocumentWorkflow:
             "hard_memory_refs": upstream["context_manifest"]["hard_memory_refs"],
             "sections": {},
             "section_model_keys": {},
+            **({"section_revision_scopes": {}} if self.boundary.audited_handoffs() else {}),
             "reviews": {},
             "review_history": [],
             "index": 0,
@@ -366,7 +382,7 @@ class SchoolDocumentWorkflow:
             by_ref.update(dict.fromkeys(grouped[key], alias))
         claims, claim_sources = {}, {}
         for ledger in upstream["literature_ledger"]:
-            if task["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5"}:
+            if task["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5", "research-v6", "research-revision-v1"}:
                 from citequest.research_v3.quote_spans import ResearchAnswerV3
                 from citequest.research_v3.review_grid import RequestReview
                 answer = ResearchAnswerV3.model_validate(ledger["answer"], strict=True)
@@ -395,6 +411,7 @@ class SchoolDocumentWorkflow:
                 "specs": [item.model_dump(mode="json") for item in specs],
             }
         )
+        prepared = self.seed_sections(prepared)
         if self.reference_preflight is None:
             return self.partial(prepared, "server_reference_preflight_required_before_writing")
         from citequest.research_v3.school_export import reference_context
@@ -414,7 +431,7 @@ class SchoolDocumentWorkflow:
         # Complete prompts are checked before the first generation. No source,
         # section or user field is dropped in order to make the request fit.
         try:
-            for spec in specs:
+            for spec in self.writer_preflight_specs(prepared, specs):
                 self.boundary.payload(
                     prepared,
                     "school_writer",
@@ -540,7 +557,7 @@ class SchoolDocumentWorkflow:
 
     def complete(self, state: dict, role: str, model: Any, name: str, policy: str, data: dict, key: str) -> Any:
         settled = (self.host.execution.settled_model_request(self.boundary.model_key(state, "school:" + key))
-            if self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5"} else None)
+            if self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5", "research-v6", "research-revision-v1"} else None)
         if self.remaining(state) <= 0 and settled is None:
             raise AgentError("school_same_task_writing_call_capacity_exhausted")
         return self.boundary.complete(state, role, self.output_model(state, model, data), name, policy, data, "school:" + key)
@@ -559,7 +576,7 @@ class SchoolDocumentWorkflow:
         return {"sections": {**state["sections"], spec.id: value.model_dump(mode="json")},
             "section_model_keys": {**state.get("section_model_keys", {}), spec.id:
                 self.boundary.model_key(state, "school:" + spec.id + ":initial")}
-                if self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5"} else state.get("section_model_keys", {}),
+                if self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5", "research-v6", "research-revision-v1"} else state.get("section_model_keys", {}),
             "next": "review_section"}
 
     def review_section(self, state: dict) -> dict:
@@ -626,7 +643,7 @@ class SchoolDocumentWorkflow:
         required = 2 + 2 * remaining_sections + 2
         if state["repairs"] >= self.profile.maximum_target_repairs or self.remaining(state) < required:
             return self.partial(state, "targeted_revision_exceeds_remaining_same_task_capacity:" + target)
-        if self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5"} and self.host.execution.content_revision_count() >= 2:
+        if self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5", "research-v6", "research-revision-v1"} and self.host.execution.content_revision_count() >= 2:
             return self.partial(state, "research_shared_content_revision_limit:" + target)
         return {"repair_target": target, "issues": issues, "return_after_repair": after, "next": "repair_section"}
 
@@ -644,18 +661,16 @@ class SchoolDocumentWorkflow:
             "repair_scope": "Only this section; preserve required claims and proposal status.",
         }
         revision = state["repairs"] + 1
-        if self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5"}:
+        if self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5", "research-v6", "research-revision-v1"}:
             current = state["sections"][spec.id]
             review = state["reviews"].get(spec.id)
-            source_key = (self.boundary.model_key(state, "school:" + spec.id + ":review:" + digest(current))
-                if review and review["content_sha256"] == digest(current)
-                else state.get("section_model_keys", {}).get(spec.id))
+            source_key = self.repair_source_key(state, spec, current, review)
             if not source_key:
                 raise AgentError("research_school_revision_source_receipt_missing")
             try:
                 self.host.execution.reserve_content_revision(
                     self.boundary.model_key(state, "school:" + spec.id + ":credit:" + str(revision)),
-                    phase="research_school_content_revision", error_codes=["research_school_section_review_rejected"],
+                    phase="research_school_content_revision", error_codes=self.repair_error_codes(state),
                     source_logical_key=source_key)
             except AgentError as error:
                 if error.code != "content_revision_limit":
@@ -670,14 +685,32 @@ class SchoolDocumentWorkflow:
             data,
             spec.id + ":repair:" + str(revision),
         )
+        revision_scope = {}
+        if self.boundary.audited_handoffs():
+            revision_scope = {"section_revision_scopes": {**state.get("section_revision_scopes", {}), spec.id: {
+                "revision": {"target_id": spec.id, "before_sha256": digest(state["sections"][spec.id]),
+                    "after_sha256": digest(value.model_dump(mode="json")),
+                    "unaffected_sha256": digest({key: item for key, item in state["sections"].items() if key != spec.id}),
+                    "resolved_conflict_refs": []},
+                "parents": {"previous_section": digest(state["sections"][spec.id]),
+                    "review_findings": digest(data["independent_findings"]), "failed_checks": digest(state["issues"])}}}}
         return {
+            **revision_scope,
             "repairs": revision,
             "sections": {**state["sections"], spec.id: value.model_dump(mode="json")},
             "section_model_keys": {**state.get("section_model_keys", {}), spec.id:
                 self.boundary.model_key(state, "school:" + spec.id + ":repair:" + str(revision))}
-                if self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5"} else state.get("section_model_keys", {}),
+                if self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5", "research-v6", "research-revision-v1"} else state.get("section_model_keys", {}),
             "next": "review_section",
         }
+
+    def repair_source_key(self, state: dict, spec: SectionSpec, current: dict, review: dict | None) -> str | None:
+        return (self.boundary.model_key(state, "school:" + spec.id + ":review:" + digest(current))
+            if review and review["content_sha256"] == digest(current)
+            else state.get("section_model_keys", {}).get(spec.id))
+
+    def repair_error_codes(self, state: dict) -> list[str]:
+        return ["research_school_section_review_rejected"]
 
     def ordered(self, state: dict) -> list[dict]:
         return [state["sections"][item["id"]] for item in state["specs"]]
@@ -794,6 +827,37 @@ class SchoolDocumentWorkflow:
         keys = ("id", "group", "title", "purpose", "required_plan_ids", "user_fields")
         return [{key: item[key] for key in keys} for item in state["specs"]]
 
+    def model_handoff_audit(self, state: dict) -> dict:
+        if not self.boundary.audited_handoffs():
+            return {}
+        entries = []
+        plan_sha = digest(state["upstream"]["plan"])
+        for spec in state["specs"]:
+            section, review = state["sections"][spec["id"]], state["reviews"][spec["id"]]
+            section_sha = digest(section)
+            scope = state.get("section_revision_scopes", {}).get(spec["id"], {})
+            entries.append(self.boundary.handoff_entry("school_writer", section,
+                sources={state["section_model_keys"][spec["id"]]: "citequest_school_section"},
+                parents={"reviewed_plan": plan_sha, "section_spec": digest(spec), **scope.get("parents", {})},
+                revision=scope.get("revision")))
+            entries.append(self.boundary.handoff_entry("school_independent_reviewer", review,
+                sources={self.boundary.model_key(state, "school:" + spec["id"] + ":review:" + section_sha):
+                    "citequest_school_section_review"}, parents={"section": section_sha}))
+        document_sha = digest(self.ordered(state))
+        entries.append(self.boundary.handoff_entry("school_cross_reviewer", state["cross_review"],
+            sources={self.boundary.model_key(state, "school:cross:" + document_sha): "citequest_school_cross_review"},
+            parents={"complete_document": document_sha, "reviewed_plan": plan_sha,
+                "section_reviews": digest(state["reviews"])}))
+        entries.append(self.boundary.handoff_entry("school_request_auditor", state["request_coverage"],
+            sources={self.boundary.model_key(state, "school:request-coverage:" + document_sha):
+                "citequest_school_request_coverage"}, parents={"complete_document": document_sha,
+                    "cross_review": digest(state["cross_review"]), "intake": digest(state["intake"])}))
+        current = self.boundary.handoff_audit(entries, state["intake"]["brief_sha256"])
+        upstream = state["upstream"].get("handoff_audit")
+        if not isinstance(upstream, dict) or upstream.get("protocol") != current["protocol"]:
+            raise AgentError("school_upstream_handoff_audit_required")
+        return {"handoff_audit": {**current, "handoffs": [*upstream["handoffs"], *current["handoffs"]]}}
+
     def publish(self, state: dict) -> dict:
         for entry in state["evidence"]:
             current = self.boundary.tool(
@@ -822,6 +886,7 @@ class SchoolDocumentWorkflow:
             "source_aliases": state["aliases"],
         }
         document = SchoolDocument(
+            schema_version="citequest-school-document/3" if self.profile.id == SchoolProfile().id else "citequest-school-document/4",
             profile=self.profile,
             brief_sha256=state["intake"]["brief_sha256"],
             reviewed_plan_sha256=digest(state["upstream"]["plan"]),
@@ -846,6 +911,7 @@ class SchoolDocumentWorkflow:
                 for spec, section in zip(document.section_specs, document.sections, strict=True)
             )
         )
+        handoff_audit = self.model_handoff_audit(state)
         return {
             "next": END,
             "result": {
@@ -857,6 +923,7 @@ class SchoolDocumentWorkflow:
                 "completion_status": "school_draft_ready_export_not_yet_verified",
                 "text": text,
                 "school_document": document.model_dump(mode="json"),
+                **handoff_audit,
                 "context_manifest": context,
                 "quality": {
                     "format": "validated",
@@ -865,14 +932,15 @@ class SchoolDocumentWorkflow:
                     "semantic": "AI_review_not_human_calibrated",
                     "export": "not_run",
                 },
-                **({"document_notice": "依据已选上交2024级计算机硕士公开模板生成的研究计划草稿。8000–12000汉字为本项目演示规模；不代表学校通用现行要求、学校审批或可直接提交。",
+                **({"document_notice": "依据已选上交" + ("2024" if self.profile.id == SchoolProfile().id else "2025") + "级计算机硕士公开模板生成的研究计划草稿。8000–12000汉字为本项目演示规模；不代表学校通用现行要求、学校审批或可直接提交。",
                     "export_options": {"formats": ["docx", "html", "pdf"],
                         "create_endpoint": "/api/agent/tasks/" + str(self.host.execution.task_id) + "/exports",
                         "processing": "existing_authorized_export_queue", "artifacts_generated": False}}
-                    if self.task()["profile"].get("profile_id") == "research-v5" else {}),
+                    if self.task()["profile"].get("profile_id") in {"research-v5", "research-v6"} else {}),
             },
         }
 
     def run(self, upstream: dict, config: dict | None = None) -> dict:
         """Use within the parent node so LangGraph inherits its Saver namespace."""
+        self.profile = get_profile(upstream.get("research_intake", {}).get("school_profile_id"))
         return self.workflow.invoke({"upstream": upstream}, config, durability="sync")

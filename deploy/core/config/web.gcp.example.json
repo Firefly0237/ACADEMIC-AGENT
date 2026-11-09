@@ -1,0 +1,20 @@
+{
+  "version": "citequest-web-container/1",
+  "mode": "production",
+  "root": "/opt/citequest",
+  "origin": "https://research.example.org",
+  "issuer": "https://identity.example.org/realms/citequest",
+  "client_id": "citequest-web",
+  "metadata_url": null,
+  "credentials_file": "/run/core-secrets/oidc.json",
+  "business_dsn_file": "/run/core-secrets/business_sqlalchemy_dsn",
+  "cursor_key_file": "/run/core-secrets/cursor_key",
+  "search_config_file": "/run/core-config/search.json",
+  "agent_config_file": "/run/core-config/api.json",
+  "export_config_file": null,
+  "port": 8080,
+  "trusted_proxy_networks": [
+    "35.191.0.0/16",
+    "130.211.0.0/22"
+  ]
+}

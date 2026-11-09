@@ -102,3 +102,13 @@ npm run dev
 ```
 
 前端通过Vite开发服务器运行。更多开发约定见[贡献指南](../CONTRIBUTING.md)。
+
+## Google Cloud
+
+[Foundation](../deploy/gcp/foundation/README.md) 配置网络、Cloud SQL、存储与服务身份；[Workloads](../deploy/gcp/workloads/README.md) 配置 HTTPS 入口、多可用区 Web 实例和独立工作角色。
+
+服务器镜像使用 `deploy/core/Dockerfile` 的 `web`、`agent`、`updater`、`indexer`、`export_worker` 构建目标。Web、Agent 与索引角色分别锁定在 `runtime/server-web`、`runtime/server-agent`、`runtime/server-indexer`；源更新使用 `runtime/s05-updates-linux`。
+
+Web 在负载均衡器后使用 [GCP 配置](../deploy/core/config/web.gcp.example.json)，按部署网络设置 `trusted_proxy_networks`。配置发布按对象 generation 与 SHA-256 固定版本，镜像使用 registry digest，秘密通过 Secret Manager 的固定版本挂载。应用迁移、Saver/Store 初始化与角色授权在工作进程启动前完成。
+
+文档渲染镜像与发布配置通过 [Export release](../runtime/s13/README.md) 工作流生成，Web 与导出消费者使用同一发行身份。

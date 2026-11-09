@@ -25,6 +25,17 @@ class FullPreparationRepository(VariantIndexRepository):
         if value.state != "preparing":
             return []
         root = self.readers.root(value)
+        if root.kind == "publication_snapshot":
+            from pydantic import TypeAdapter
+            from citequest.updates_v2.models import PublicationMember
+            from citequest.index_v2.source_variants import SourceReference
+            import json
+            members = self.db.scalars(select(PublicationMember).where(
+                PublicationMember.snapshot_id == root.source_root_id,
+                ~exists(select(1).where(m.IndexUnit.generation_id == identifier,
+                    m.IndexUnit.projection_id == PublicationMember.source_unit_id)))
+                .order_by(PublicationMember.source_unit_id).limit(limit))
+            return [self.readers.read(root, TypeAdapter(SourceReference).validate_json(json.dumps(member.reference))) for member in members]
         if value.build_scope != "full" or root.kind not in {"metadata_snapshot", "native_snapshot"}:
             raise DomainError("adopted_fixed_full_source_required", 409)
         if not root.profile_adopted or not root.publication_eligible or root.state != "staged":
@@ -101,7 +112,11 @@ class FullPreparationRepository(VariantIndexRepository):
                 ).where(m.IndexUnit.generation_id == identifier)
             )
         )
-        expected_count = 64183 if root.kind == "metadata_snapshot" else 692
+        if root.kind == "publication_snapshot":
+            from citequest.updates_v2.models import PublicationSnapshot
+            expected_count = self.db.get(PublicationSnapshot, root.source_root_id).member_count
+        else:
+            expected_count = 64183 if root.kind == "metadata_snapshot" else 692
         if (
             value.build_scope != "full"
             or len(wanted) != expected_count

@@ -8,9 +8,10 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from citequest.agents_v3.contracts import AgentError, digest
+from citequest.agents_v3.contracts import AgentError, ReviewSource, digest
 from citequest.agents_v3.database import TaskService
 from citequest.agents_v3.memory import MemoryService
+from citequest.agents_v3.research_history import HistoricalResearchReader
 from citequest.agents_v3.result_projection import ProjectedTaskReader
 from citequest.platform_v3.blob_store import BlobStore
 from citequest.research_v3.evidence import EvidenceAccess, reference_allows
@@ -29,8 +30,9 @@ class ExportDomain:
     evidence: EvidenceAccess
     search: SearchService
 
-    def references(self, actor: Actor, task_id: UUID, document: SchoolDocument) -> list[dict]:
-        task, current = self.service.document(actor, task_id)
+    def references(self, actor: Actor, task_id: UUID, document: SchoolDocument, *,
+                   source_binding: ReviewSource | dict | None = None) -> list[dict]:
+        task, current = self.service.document(actor, task_id, source_binding=source_binding)
         if digest(document.model_dump(mode="json")) != digest(current.model_dump(mode="json")):
             raise DomainError("export_task_document_or_context_changed", 409)
 
@@ -40,9 +42,24 @@ class ExportDomain:
                 raise DomainError("export_reference_role_changed", 409)
             return value
 
-        references = current_references(document, read, lambda locator: self.search.detail(actor, locator))
+        def read_material(file_id: str) -> dict:
+            from citequest.research_v3.brief_service import (
+                read_confirmed_material_bibliography, read_historical_confirmed_material_bibliography,
+            )
+            from citequest.v2.services import Catalog
+
+            with self.service.factory.begin() as db:
+                if source_binding is not None or task["profile"].get("profile_id") == "research-revision-v1":
+                    return read_historical_confirmed_material_bibliography(Catalog(db, actor),
+                        UUID(document.context_manifest["brief_id"]), document.context_manifest["brief_revision"], UUID(file_id),
+                        expected_brief_sha256=document.brief_sha256)
+                return read_confirmed_material_bibliography(Catalog(db, actor), UUID(document.context_manifest["brief_id"]), UUID(file_id),
+                    expected_brief_sha256=document.brief_sha256)
+
+        references = current_references(document, read, lambda locator: self.search.detail(actor, locator),
+            read_material_bibliography=read_material)
         # Metadata/source IO cannot create an interval of unguarded publication.
-        _, after = self.service.document(actor, task_id)
+        _, after = self.service.document(actor, task_id, source_binding=source_binding)
         if digest(after.model_dump(mode="json")) != digest(document.model_dump(mode="json")):
             raise DomainError("export_task_document_or_context_changed", 409)
         return references
@@ -60,9 +77,9 @@ def build_export_domain(
 ) -> ExportDomain:
     """No DB query, DDL, Docker process, model request or key read at construction."""
     reader = ProjectedTaskReader(tasks, memory, evidence.authorize)
+    history = HistoricalResearchReader(tasks, memory, evidence.authorize)
 
-    def authorize(actor: Actor, task_id: UUID) -> dict:
-        task = reader.get(actor, task_id)
+    def authorize_context(actor: Actor, task: dict) -> dict:
         result = task.get("result")
         if (
             task.get("result_availability") == "available"
@@ -97,5 +114,16 @@ def build_export_domain(
                 return {**task, "result": None, "result_availability": "export_current_context_invalidated"}
         return task
 
-    service = ExportService(factory, authorize, store, profile, pager)
+    def authorize(actor: Actor, task_id: UUID) -> dict:
+        return authorize_context(actor, reader.get(actor, task_id))
+
+    def authorize_version(actor: Actor, task_id: UUID, binding: ReviewSource) -> dict:
+        if binding.source_task_id != task_id:
+            raise DomainError("export_source_task_mismatch", 409)
+        source = history.read(actor, binding)
+        task = tasks.public(source.task, catalog_scope_policy=tasks.database.catalog_scope_policy,
+            development_campaign_policy=getattr(tasks.database, "development_campaign_policy", None))
+        return authorize_context(actor, {**task, "result_availability": "available"})
+
+    service = ExportService(factory, authorize, store, profile, pager, authorize_version=authorize_version)
     return ExportDomain(service, evidence, search)

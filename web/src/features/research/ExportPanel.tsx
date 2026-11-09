@@ -1,20 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../../api";
+import { sameReviewSource, type ReviewSource } from "./review";
 
 type ExportJob = {
   id: string; state: string; availability: string; error_code?: string | null;
   created_at: string; artifacts: Array<{ format: string; size_bytes: number; content_url: string }>;
+  source_binding?: ReviewSource | null;
 };
 type Page = { items: ExportJob[]; next_cursor: string | null };
 const states: Record<string, string> = { queued: "等待排版", running: "正在排版与检查", succeeded: "排版完成", failed: "未完成", cancelled: "已取消" };
 
-export function ExportPanel({ taskId }: { taskId: string }) {
+export function ExportPanel({ taskId, sourceBinding }: { taskId: string; sourceBinding?: ReviewSource }) {
   const [jobs, setJobs] = useState<ExportJob[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
   const operation = useRef<string | null>(null);
-  const active = jobs.some(job => ["queued", "running"].includes(job.state));
+  const matchingJobs = sourceBinding ? jobs.filter(job => job.source_binding && sameReviewSource(job.source_binding, sourceBinding)) : jobs;
+  const active = matchingJobs.some(job => ["queued", "running"].includes(job.state));
   const mounted = useRef(true);
   async function load(next?: string | null, signal?: AbortSignal) {
     const page = await api<Page>(`/api/agent/tasks/${taskId}/exports?limit=10${next ? `&cursor=${encodeURIComponent(next)}` : ""}`,
@@ -42,7 +45,8 @@ export function ExportPanel({ taskId }: { taskId: string }) {
     operation.current ||= crypto.randomUUID();
     try {
       const job = await api<ExportJob>(`/api/agent/tasks/${taskId}/exports`, {
-        operation_id: operation.current, formats: ["docx", "html", "pdf"]
+        operation_id: operation.current, formats: ["docx", "html", "pdf"],
+        ...(sourceBinding ? { source_binding: sourceBinding } : {}),
       });
       operation.current = null;
       if (mounted.current) { setJobs(old => [job, ...old.filter(item => item.id !== job.id)]); await load(); }
@@ -51,11 +55,12 @@ export function ExportPanel({ taskId }: { taskId: string }) {
   }
   return <section className="card" aria-label="研究计划书导出">
     <h3>导出可编辑草案</h3>
+    {sourceBinding && <p className="muted">导出所选提交 {sourceBinding.command_seq} 的稿件。</p>}
     <p className="muted">基于本任务已审查的同一版本排版，不重新调用模型。下载前仍核对当前权限与档案；公开模板和开放字体需按院系当期要求复核，签名与日期由你填写。</p>
     <button disabled={busy || active} onClick={create}>{busy ? "正在提交…" : active ? "排版任务执行中" : "生成 DOCX / HTML / PDF"}</button>
     <button disabled={busy} onClick={() => load().catch(setError)}>刷新导出状态</button>
     {!!error && <p role="alert" className="notice">{errorText(error)} 请检查档案或来源是否变化；导出失败不会自动重试。</p>}
-    <ul className="export-jobs">{jobs.map(job => <li key={job.id}>
+    <ul className="export-jobs">{matchingJobs.map(job => <li key={job.id}>
       <strong>{states[job.state] || job.state}</strong> · {new Date(job.created_at).toLocaleString("zh-CN")}
       {job.availability === "source_unavailable" && <p className="notice">当前来源或档案已变化，旧导出不可下载。</p>}
       {job.error_code && <p className="notice">本次排版未通过（{job.error_code}）。保留该记录后可明确另起排版。</p>}
@@ -67,6 +72,7 @@ export function ExportPanel({ taskId }: { taskId: string }) {
         catch(cause) { setError(cause); }
       }}>取消排版</button>}
     </li>)}</ul>
+    {sourceBinding && jobs.length > matchingJobs.length && <p className="muted">其他版本及未绑定版本的历史导出记录不计入当前稿件。</p>}
     {cursor && <button disabled={busy} onClick={() => load(cursor).catch(setError)}>查看更早的导出记录</button>}
   </section>;
 }

@@ -35,6 +35,8 @@ class ToolConfig(Strict):
     catalog_scope_policy: CatalogScopePolicy | None = None
     decisionrag_config_file: Path | None = None
     decisionrag_config_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")] | None = None
+    rerank_config_file: Path | None = None
+    rerank_config_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")] | None = None
 
 
 def build_server(config: ToolConfig) -> FastMCP:
@@ -87,6 +89,20 @@ def build_server(config: ToolConfig) -> FastMCP:
         if not qa5 or config.mode != "search" or config.decisionrag_config_file is None:
             raise AgentError("decisionrag_runtime_not_configured")
         navigation_config = load_task_config(config.decisionrag_config_file, config.decisionrag_config_sha256)
+        from .product_profiles import evidence_navigation_protocol
+        if navigation_config.navigation_protocol != evidence_navigation_protocol(initial):
+            raise AgentError("decisionrag_task_runtime_protocol_mismatch")
+    from .product_profiles import retrieval_rerank_protocol
+    from citequest.research_v3.rerank import TEICrossEncoder, load_config as load_rerank_config
+    reranker = None
+    if (config.rerank_config_file is None) != (config.rerank_config_sha256 is None):
+        raise AgentError("rerank_trusted_configuration_required", 503)
+    if retrieval_rerank_protocol(initial) is not None:
+        if (not qa5 or config.mode != "search" or config.rerank_config_file is None
+                or config.rerank_config_sha256 != initial["profile"]["rerank_config_sha256"]):
+            raise AgentError("rerank_runtime_configuration_not_bound", 503)
+        reranker = TEICrossEncoder(load_rerank_config(config.rerank_config_file, config.rerank_config_sha256),
+            config.rerank_config_sha256)
 
     def context() -> dict:
         with psycopg.connect(dsn, row_factory=dict_row, connect_timeout=3) as db:
@@ -221,7 +237,7 @@ def build_server(config: ToolConfig) -> FastMCP:
         if not isinstance(query, str) or not 1 <= len(query) <= 2000 or type(limit) is not int or not 1 <= limit <= 8:
             raise AgentError("search_tool_arguments_invalid")
         task = context()
-        research_v5 = task["kind"] == "research" and task["profile"].get("profile_id") == "research-v5"
+        research_v5 = task["kind"] == "research" and task["profile"].get("profile_id") in {"research-v5", "research-v6"}
         if limit > 3 and not research_v5:
             raise AgentError("search_tool_arguments_invalid")
         if task["brief"]["kind"] == "research" and task["brief"].get("research_action") == "extract":
@@ -331,30 +347,55 @@ def build_server(config: ToolConfig) -> FastMCP:
 
     from .qa5_evidence_tools import QA5EvidenceTools
     qa5_tools = QA5EvidenceTools(BusinessCatalogDB(config.business_dsn_file, config.catalog_scope_policy),
-        search, material, context, registered, register, catalog_pins) if qa5 else None
+        search, material, context, registered, register, catalog_pins, reranker=reranker) if qa5 else None
 
-    @server.tool()
-    def navigate_issued_evidence(query: Annotated[str, Field(min_length=1, max_length=8000)],
-            ref_ids: Annotated[list[str], Field(min_length=1, max_length=8)],
-            remaining_ms: Annotated[int, Field(ge=1, le=25000)]) -> dict:
-        """Navigate only current Task-issued complete refs using two real local probability forwards.
-
-        remaining_ms is injected by the trusted Execution client, never a user or
-        model argument. No retrieval, authority expansion, clipping or fallback.
-        """
+    def navigate_current_evidence(query: str, ref_ids: list[str], remaining_ms: int) -> dict:
         if navigation_config is None or qa5_tools is None:
             raise AgentError("decisionrag_runtime_not_configured")
         from citequest.research_v3.decisionrag_task import navigate_task_evidence
         return navigate_task_evidence(navigation_config, query, ref_ids, access=qa5_tools.access,
             context=context, remaining_ms=remaining_ms)
 
-    @server.tool()
-    def search_chunk_evidence(query: Annotated[str, Field(min_length=1, max_length=2000)],
-                              limit: Annotated[int, Field(ge=1, le=20)] = 8) -> dict:
-        """QA5-only pinned chunk retrieval; each selected document gets bounded candidate slots."""
-        if qa5_tools is None:
-            raise AgentError("qa5_chunk_profile_and_task_catalog_pins_required", 503)
-        return qa5_tools.search_chunks(query,limit)
+    if navigation_config is not None and navigation_config.navigation_protocol == "laya2":
+        @server.tool()
+        def navigate_issued_evidence(query: Annotated[str, Field(min_length=1, max_length=8000)],
+                ref_ids: Annotated[list[str], Field(min_length=1, max_length=20)],
+                remaining_ms: Annotated[int, Field(ge=1, le=25000)]) -> dict:
+            """Navigate complete issued refs by batch screening and a shared final rescore.
+
+            The trusted client injects remaining_ms. All real forwards and
+            cumulative local usage belong to this single bounded tool attempt.
+            """
+            return navigate_current_evidence(query, ref_ids, remaining_ms)
+    else:
+        @server.tool()
+        def navigate_issued_evidence(query: Annotated[str, Field(min_length=1, max_length=8000)],
+                ref_ids: Annotated[list[str], Field(min_length=1, max_length=8)],
+                remaining_ms: Annotated[int, Field(ge=1, le=25000)]) -> dict:
+            """Navigate only current Task-issued complete refs using two real local probability forwards.
+
+            remaining_ms is injected by the trusted Execution client, never a user or
+            model argument. No retrieval, authority expansion, clipping or fallback.
+            """
+            return navigate_current_evidence(query, ref_ids, remaining_ms)
+
+    if reranker is None:
+        @server.tool()
+        def search_chunk_evidence(query: Annotated[str, Field(min_length=1, max_length=2000)],
+                                  limit: Annotated[int, Field(ge=1, le=20)] = 8) -> dict:
+            """QA5-only pinned chunk retrieval; each selected document gets bounded candidate slots."""
+            if qa5_tools is None:
+                raise AgentError("qa5_chunk_profile_and_task_catalog_pins_required", 503)
+            return qa5_tools.search_chunks(query, limit)
+    else:
+        @server.tool()
+        def search_chunk_evidence(query: Annotated[str, Field(min_length=1, max_length=2000)],
+                                  remaining_ms: Annotated[int, Field(ge=1, le=30000)],
+                                  limit: Annotated[int, Field(ge=1, le=20)] = 8) -> dict:
+            """Pinned chunk retrieval and full-candidate TEI ranking; trusted client supplies the deadline."""
+            if qa5_tools is None:
+                raise AgentError("qa5_chunk_profile_and_task_catalog_pins_required", 503)
+            return qa5_tools.search_chunks(query, limit, remaining_ms=remaining_ms)
 
     @server.tool()
     def plan_workset() -> dict:

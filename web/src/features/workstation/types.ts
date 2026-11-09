@@ -3,7 +3,7 @@ import type { Paper, PaperRef, Session } from "../../api";
 import type {
   BriefHelpRequest,
   BriefSuggestion,
-  PlanningInput,
+  BriefEditorProps,
 } from "../research/types";
 
 export type EvidenceSelection = {
@@ -106,6 +106,6 @@ export type WorkspacePanelProps = {
   onResearchHelp?: (
     request: BriefHelpRequest,
   ) => Promise<BriefSuggestion[] | void> | void;
-  onResearchStart?: (input: PlanningInput) => Promise<void> | void;
+  onResearchStart?: BriefEditorProps["onResearchStart"];
   onResearchExtract?: (request: BriefHelpRequest) => Promise<void> | void;
 };

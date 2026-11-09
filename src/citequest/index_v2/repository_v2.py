@@ -35,6 +35,7 @@ CATALOGS = {
     "metadata_snapshot": "standard_metadata",
     "native_snapshot": "application_papers",
     "update_seal": "managed_metadata",
+    "publication_snapshot": "standard_metadata",
 }
 
 
@@ -180,7 +181,13 @@ class VariantIndexRepository(IndexRepository):
             unit_limit is not None and (type(unit_limit) is not int or not 1 <= unit_limit <= 64183)
         ):
             raise DomainError("declared_typed_source_and_bounded_selection_required", 400)
-        if kind == "update_seal":
+        publication_snapshot_id = None
+        if kind == "publication_snapshot":
+            from citequest.updates_v2.publication import SnapshotService
+            source = SnapshotService(self).snapshot(root_id)
+            snapshot_id, update_seal_id, publication_snapshot_id = source.base_snapshot_id, None, root_id
+            profile, manifest = source.profile_id, source.seal_sha256
+        elif kind == "update_seal":
             source = self.db.get(updates.UpdateSeal, root_id)
             if source is None:
                 raise DomainError("not_found", 404)
@@ -197,9 +204,10 @@ class VariantIndexRepository(IndexRepository):
         desired = {
             "snapshot_id": snapshot_id,
             "update_seal_id": update_seal_id,
+            "publication_snapshot_id": publication_snapshot_id,
             "source_root_kind": kind,
             "security_domain": source.security_domain,
-            "source_namespace": source.source_namespace,
+            "source_namespace": "bounded_metadata_union" if kind == "publication_snapshot" else source.source_namespace,
             "source_manifest_sha256": manifest,
             "representation_profile": profile,
             "catalog_name": CATALOGS[kind],
@@ -230,7 +238,7 @@ class VariantIndexRepository(IndexRepository):
         return {
             "generation_id": str(value.id),
             "source_root_kind": value.source_root_kind,
-            "source_root_id": str(value.snapshot_id or value.update_seal_id),
+            "source_root_id": str(value.publication_snapshot_id or value.snapshot_id or value.update_seal_id),
             "snapshot_id": str(value.snapshot_id) if value.snapshot_id else None,
             "update_seal_id": str(value.update_seal_id) if value.update_seal_id else None,
             "collection_name": value.collection_name,
@@ -722,6 +730,13 @@ class VariantIndexRepository(IndexRepository):
                 sources.SourceSnapshot.seal_sha256 == generation.source_seal_sha256,
             )
         )
+        if generation.source_root_kind == "publication_snapshot":
+            root_visible = exists(select(updates.PublicationSnapshot.id).where(
+                updates.PublicationSnapshot.id == generation.publication_snapshot_id,
+                updates.PublicationSnapshot.security_domain == generation.security_domain,
+                updates.PublicationSnapshot.seal_sha256 == generation.source_seal_sha256,
+                updates.PublicationSnapshot.policy_sha256 == generation.policy_sha256,
+                updates.PublicationSnapshot.evaluation_sha256 == generation.evaluation_sha256))
         # One statement snapshot on scalar FK/index columns. No native body
         # JSON/CAS or per-hit model call is loaded for this response barrier.
         decisions = dict(

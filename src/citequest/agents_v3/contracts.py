@@ -35,6 +35,7 @@ class Strict(BaseModel):
 
 ID = Annotated[UUID, Field(strict=False)]
 Text = Annotated[str, Field(min_length=1, max_length=8000)]
+DIALOGUE_REFERENCE_PROFILE_IDS = frozenset({"qa-v6", "qa-v7", "qa-v8", "qa-v9", "stance-v3", "workset-v7"})
 
 
 class RuntimeLimits(Strict):
@@ -156,6 +157,13 @@ PROFILES = {"qa-v1": BudgetProfile(profile_id="qa-v1", model_calls=6, tool_calls
     "research-v5": BudgetProfile(profile_id="research-v5", model_calls=64, tool_calls=80,
     input_tokens=512000, output_tokens=131072, per_call_output=2048, active_seconds=1800,
     cash_ncny=80000000000, request_bytes=131072)}
+PROFILES["research-v6"] = PROFILES["research-v5"].model_copy(update={"profile_id": "research-v6"})
+PROFILES["research-review-v1"] = BudgetProfile(profile_id="research-review-v1", model_calls=8,
+    tool_calls=80, input_tokens=8388608, output_tokens=32768, per_call_output=4096,
+    active_seconds=900, cash_ncny=20000000000, request_bytes=262144)
+PROFILES["research-revision-v1"] = BudgetProfile(profile_id="research-revision-v1", model_calls=18,
+    tool_calls=128, input_tokens=18874368, output_tokens=36864, per_call_output=2048,
+    active_seconds=1800, cash_ncny=40000000000, request_bytes=262144)
 LEGACY_GRAPH_VERSION = "citequest-agent-graph/5-observed-source-workset"
 GRAPH_VERSION = "citequest-agent-graph/8-current-pinned-skills-and-context"
 RESEARCH_GRAPH_VERSION = "citequest-agent-graph/6-versioned-research-and-school-document"
@@ -188,11 +196,18 @@ STANCE_V3_GRAPH_VERSION = "citequest-agent-graph/21-atomic-stance-bound-goal-rev
 WORKSET_V7_GRAPH_VERSION = "citequest-agent-graph/22-grouped-workset-bound-goal-review"
 RESEARCH_V4_GRAPH_VERSION = "citequest-agent-graph/23-research-host-bound-control-identities"
 RESEARCH_V5_GRAPH_VERSION = "citequest-agent-graph/25-research-reviewed-outline-bound-input-gaps"
-CURRENT_GRAPH_VERSIONS = (GRAPH_VERSION, RESEARCH_GRAPH_VERSION, WORKSET_V2_GRAPH_VERSION, WORKSET_V3_GRAPH_VERSION, QA_V2_GRAPH_VERSION, RESEARCH_V2_GRAPH_VERSION, QA_V3_GRAPH_VERSION, QA_V4_GRAPH_VERSION, WORKSET_V4_GRAPH_VERSION, WORKSET_V5_GRAPH_VERSION, QA_V5_GRAPH_VERSION, RESEARCH_V3_GRAPH_VERSION, STANCE_V2_GRAPH_VERSION, WORKSET_V6_GRAPH_VERSION, QA_V6_GRAPH_VERSION, STANCE_V3_GRAPH_VERSION, WORKSET_V7_GRAPH_VERSION, RESEARCH_V4_GRAPH_VERSION, RESEARCH_V5_GRAPH_VERSION)
+RESEARCH_REVIEW_GRAPH_VERSION = "citequest-agent-graph/39-version-bound-research-review"
+RESEARCH_REVISION_GRAPH_VERSION = "citequest-agent-graph/40-finding-bound-targeted-research-revision"
+RESEARCH_V6_GRAPH_VERSION = "citequest-agent-graph/38-standalone-reviewed-experiment-design"
+CURRENT_GRAPH_VERSIONS = (RESEARCH_REVISION_GRAPH_VERSION, RESEARCH_REVIEW_GRAPH_VERSION, RESEARCH_V6_GRAPH_VERSION, GRAPH_VERSION, RESEARCH_GRAPH_VERSION, WORKSET_V2_GRAPH_VERSION, WORKSET_V3_GRAPH_VERSION, QA_V2_GRAPH_VERSION, RESEARCH_V2_GRAPH_VERSION, QA_V3_GRAPH_VERSION, QA_V4_GRAPH_VERSION, WORKSET_V4_GRAPH_VERSION, WORKSET_V5_GRAPH_VERSION, QA_V5_GRAPH_VERSION, RESEARCH_V3_GRAPH_VERSION, STANCE_V2_GRAPH_VERSION, WORKSET_V6_GRAPH_VERSION, QA_V6_GRAPH_VERSION, STANCE_V3_GRAPH_VERSION, WORKSET_V7_GRAPH_VERSION, RESEARCH_V4_GRAPH_VERSION, RESEARCH_V5_GRAPH_VERSION)
 POLICY_VERSION = "citequest-agent-policy/1"
 
 
 def graph_version_for_kind(kind: str, profile_id: str | None = None) -> str:
+    if kind == "research" and profile_id == "research-review-v1":
+        return RESEARCH_REVIEW_GRAPH_VERSION
+    if kind == "research" and profile_id == "research-revision-v1":
+        return RESEARCH_REVISION_GRAPH_VERSION
     if kind == "qa" and profile_id in {"qa-v8", "qa-v9"}:
         return QA_ANCHORED_GRAPH_VERSION
     if kind == "qa" and profile_id == "qa-v7":
@@ -210,7 +225,7 @@ def graph_version_for_kind(kind: str, profile_id: str | None = None) -> str:
     if kind in {"summary", "compare"} and profile_id == "workset-v5":
         return WORKSET_V5_GRAPH_VERSION
     if kind == "research":
-        return {"research-v2":RESEARCH_V2_GRAPH_VERSION,"research-v3":RESEARCH_V3_GRAPH_VERSION,"research-v4":RESEARCH_V4_GRAPH_VERSION,"research-v5":RESEARCH_V5_GRAPH_VERSION}.get(profile_id,RESEARCH_GRAPH_VERSION)
+        return {"research-v2":RESEARCH_V2_GRAPH_VERSION,"research-v3":RESEARCH_V3_GRAPH_VERSION,"research-v4":RESEARCH_V4_GRAPH_VERSION,"research-v5":RESEARCH_V5_GRAPH_VERSION,"research-v6":RESEARCH_V6_GRAPH_VERSION}.get(profile_id,RESEARCH_GRAPH_VERSION)
     if kind == "qa" and profile_id in {"qa-v2", "qa-v3", "qa-v4", "qa-v5"}:
         return {"qa-v2": QA_V2_GRAPH_VERSION, "qa-v3": QA_V3_GRAPH_VERSION, "qa-v4": QA_V4_GRAPH_VERSION, "qa-v5": QA_V5_GRAPH_VERSION}[profile_id]
     if kind in {"summary", "compare"} and profile_id in {"workset-v3", "workset-v4"}:
@@ -222,6 +237,37 @@ class VersionedBriefRef(Strict):
     id: ID
     revision: int = Field(ge=1)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class ReviewSource(Strict):
+    source_task_id: ID
+    source_command_id: ID
+    command_seq: int = Field(ge=1)
+    event_seq: int = Field(ge=1)
+    task_revision: int = Field(ge=1)
+    document_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    context_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class ReviewReportSource(Strict):
+    task_id: ID
+    command_id: ID
+    command_seq: int = Field(ge=1)
+    event_seq: int = Field(ge=1)
+    task_revision: int = Field(ge=1)
+    report_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    context_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class RevisionRequest(Strict):
+    report: ReviewReportSource
+    finding_keys: list[Annotated[str, Field(pattern=r"^(evidence:E|methods:M|structure:S)[1-8]$")]] = Field(min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def unique_findings(self):
+        if len(set(self.finding_keys)) != len(self.finding_keys):
+            raise ValueError("selected findings must be unique")
+        return self
 
 
 class SkillPin(Strict):
@@ -248,6 +294,8 @@ class EvidenceSelection(Strict):
 class ResearchBrief(Strict):
     schema_version: Literal["citequest-agent-brief/1"] = "citequest-agent-brief/1"
     question: Annotated[str, Field(max_length=8000)] = ""
+    reference_turn_seq: int | None = Field(default=None, ge=1, le=9007199254740991,
+        exclude_if=lambda value: value is None)
     kind: Literal["qa", "summary", "compare", "stance", "research"] = "qa"
     requested_direction: Literal["neutral", "support", "refute"] = "neutral"
     objective: Annotated[str, Field(max_length=2000)] = "Answer the research question using permitted evidence."
@@ -257,7 +305,9 @@ class ResearchBrief(Strict):
     unknowns: list[Annotated[str, Field(min_length=1, max_length=1000)]] = Field(default_factory=list, max_length=12)
     research_brief: VersionedBriefRef | None = Field(default=None, exclude_if=lambda value: value is None)
     selected_skills: list[SkillPin] = Field(default_factory=list, max_length=3, exclude_if=lambda value: not value)
-    research_action: Literal["plan", "suggest", "extract"] = Field(default="plan", exclude_if=lambda value: value == "plan")
+    review_source: ReviewSource | None = Field(default=None, exclude_if=lambda value: value is None)
+    revision_request: RevisionRequest | None = Field(default=None, exclude_if=lambda value: value is None)
+    research_action: Literal["plan", "suggest", "extract", "experiment", "review", "revise"] = Field(default="plan", exclude_if=lambda value: value == "plan")
     research_help_fields: list[Annotated[str, Field(min_length=1, max_length=40)]] = Field(default_factory=list,
         max_length=3, exclude_if=lambda value: not value)
     research_draft_files: list[ID] = Field(default_factory=list, max_length=4, exclude_if=lambda value: not value)
@@ -278,6 +328,14 @@ class ResearchBrief(Strict):
     def direction_matches_kind(self):
         if (self.kind == "research") != (self.research_brief is not None):
             raise ValueError("research tasks require an authorized versioned research Brief reference")
+        if (self.research_action in {"review", "revise"}) != (self.review_source is not None):
+            raise ValueError("research review requires one immutable source version")
+        if self.research_action in {"review", "revise"} and self.kind != "research":
+            raise ValueError("research review requires a research task")
+        if (self.research_action == "revise") != (self.revision_request is not None):
+            raise ValueError("targeted revision requires a fixed review and selected findings")
+        if self.research_action == "experiment" and self.kind != "research":
+            raise ValueError("experiment design requires a research task")
         if self.research_action == "suggest":
             from citequest.research_v3.brief import FIELD_ORDER
             if self.kind != "research" or not self.research_help_fields or any(field not in FIELD_ORDER for field in self.research_help_fields):
@@ -313,16 +371,26 @@ class ResearchBrief(Strict):
 class TaskCreate(Strict):
     project_id: ID
     operation_id: ID
-    profile_id: Literal["qa-v1", "qa-v2", "qa-v3", "qa-v4", "qa-v5", "qa-v6", "qa-v7", "qa-v8", "qa-v9", "stance-v1-r2", "stance-v2", "stance-v3", "workset-v1", "workset-v2", "workset-v3", "workset-v4", "workset-v5", "workset-v6", "workset-v7", "research-v1", "research-v2", "research-v3", "research-v4", "research-v5"] = "qa-v1"
+    profile_id: Literal["qa-v1", "qa-v2", "qa-v3", "qa-v4", "qa-v5", "qa-v6", "qa-v7", "qa-v8", "qa-v9", "stance-v1-r2", "stance-v2", "stance-v3", "workset-v1", "workset-v2", "workset-v3", "workset-v4", "workset-v5", "workset-v6", "workset-v7", "research-v1", "research-v2", "research-v3", "research-v4", "research-v5", "research-v6", "research-review-v1", "research-revision-v1"] = "qa-v1"
     kind: Literal["qa", "summary", "compare", "stance", "research"] = "qa"
     brief: ResearchBrief
 
     @model_validator(mode="after")
     def same_kind(self):
+        from citequest.platform_v3.input_text import request_text
+        request_text(self.brief.question, allow_empty=self.kind == "research")
+        if (self.profile_id == "research-revision-v1") != (self.brief.research_action == "revise"):
+            raise ValueError("targeted revision action requires its dedicated profile")
+        if (self.profile_id == "research-review-v1") != (self.brief.research_action == "review"):
+            raise ValueError("research review action requires its dedicated profile")
+        if self.brief.research_action == "experiment" and (self.kind != "research" or self.profile_id != "research-v6"):
+            raise ValueError("standalone experiment design requires the versioned research-v6 workflow")
         if self.kind != self.brief.kind:
             raise ValueError("Task and Brief kind must match")
+        if self.brief.reference_turn_seq is not None:
+            raise ValueError("a new task cannot reference a prior task turn")
         expected = "research-v1" if self.kind == "research" else ("stance-v1-r2" if self.kind == "stance" else ("workset-v1" if self.kind in {"summary", "compare"} else "qa-v1"))
-        if self.profile_id != expected and not (self.kind in {"summary", "compare"} and self.profile_id in {"workset-v2", "workset-v3", "workset-v4", "workset-v5", "workset-v6", "workset-v7"}) and not (self.kind == "qa" and self.profile_id in {"qa-v2", "qa-v3", "qa-v4", "qa-v5", "qa-v6", "qa-v7", "qa-v8", "qa-v9"}) and not (self.kind == "research" and self.profile_id in {"research-v2", "research-v3", "research-v4", "research-v5"}) and not (self.kind == "stance" and self.profile_id in {"stance-v2", "stance-v3"}):
+        if self.profile_id != expected and not (self.kind in {"summary", "compare"} and self.profile_id in {"workset-v2", "workset-v3", "workset-v4", "workset-v5", "workset-v6", "workset-v7"}) and not (self.kind == "qa" and self.profile_id in {"qa-v2", "qa-v3", "qa-v4", "qa-v5", "qa-v6", "qa-v7", "qa-v8", "qa-v9"}) and not (self.kind == "research" and self.profile_id in {"research-v2", "research-v3", "research-v4", "research-v5", "research-v6", "research-review-v1", "research-revision-v1"}) and not (self.kind == "stance" and self.profile_id in {"stance-v2", "stance-v3"}):
             raise ValueError("profile does not match the trusted task-kind policy")
         selected = [(item.kind, item.id) for item in self.brief.selected_papers]
         if len(set(selected)) != len(selected):
@@ -337,10 +405,12 @@ class TaskCommand(Strict):
     expected_revision: int = Field(ge=1)
     kind: Literal["resume", "followup", "cancel"]
     message: Annotated[str, Field(max_length=8000)] = ""
+    reference_turn_seq: int | None = Field(default=None, ge=1, le=9007199254740991,
+        exclude_if=lambda value: value is None)
     requested_direction: Literal["support", "refute"] | None = None
     research_brief: VersionedBriefRef | None = Field(default=None, exclude_if=lambda value: value is None)
     selected_skills: list[SkillPin] | None = Field(default=None, max_length=3, exclude_if=lambda value: value is None)
-    research_action: Literal["plan", "suggest", "extract"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    research_action: Literal["plan", "suggest", "extract", "experiment", "review", "revise"] | None = Field(default=None, exclude_if=lambda value: value is None)
     research_help_fields: list[Annotated[str, Field(min_length=1, max_length=40)]] | None = Field(default=None,
         max_length=3, exclude_if=lambda value: value is None)
     research_extract_fields: list[Annotated[str, Field(min_length=1, max_length=40)]] | None = Field(default=None,
@@ -349,10 +419,13 @@ class TaskCommand(Strict):
     @field_validator("message")
     @classmethod
     def valid_user_message(cls, value: str) -> str:
-        return validate_user_text(value)
+        from citequest.platform_v3.input_text import request_text
+        return request_text(value, allow_empty=True)
 
     @model_validator(mode="after")
     def direction_command(self):
+        if self.kind == "cancel" and self.reference_turn_seq is not None:
+            raise ValueError("cancel cannot select a prior answer")
         if self.selected_skills is not None and len({item.skill_id for item in self.selected_skills}) != len(self.selected_skills):
             raise ValueError("selected skill pins must be unique")
         if self.kind == "cancel" and (self.requested_direction is not None or self.research_brief is not None or self.selected_skills is not None):

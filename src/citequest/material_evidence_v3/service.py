@@ -20,11 +20,12 @@ from citequest.materials_v2.models import MaterialFragment, ParsedRepresentation
 from citequest.materials_v2.services import MaterialService
 from citequest.v2.db import engine, sessions
 from citequest.v2.domain import Actor, DomainError
-from citequest.v2.models import Blob, File
+from citequest.v2.models import Blob, File, WorkVersion
 from citequest.v2.storage import CAS, StoredBlob
 
 if TYPE_CHECKING:
     from .native import MaterialNativeIndex
+    from citequest.search_v3.query_projection import MaterialQueryProjection, MaterialQuerySelection, MaterialSourcePin
 
 
 def sha(text: str) -> str:
@@ -54,6 +55,72 @@ class MaterialEvidenceService:
             for file_id in file_ids:
                 self._source(db, actor, file_id)
         self.native_index.preflight(actor, file_ids)
+
+    @staticmethod
+    def _query_fragment(row: MaterialFragment) -> dict:
+        if row.payload.get("source_text_sha256") != sha(row.source_text) or row.payload.get("source_text") != row.source_text:
+            raise DomainError("material_fragment_integrity_failure", 503)
+        return {"id": row.id, "text": row.source_text, "native_provenance": row.payload.get("native_provenance") or {}}
+
+    @staticmethod
+    def _query_source_pin(db: Session, file: File, representation: ParsedRepresentation) -> MaterialSourcePin:
+        from citequest.search_v3.query_projection import MaterialSourcePin
+
+        version = db.get(WorkVersion, file.version_id, populate_existing=True) if file.version_id else None
+        if file.version_id is not None and version is None:
+            raise DomainError("material_source_version_changed", 409)
+        return MaterialSourcePin(file_id=str(file.id), file_revision=file.revision, file_sha256=file.sha256,
+            representation_id=representation.id, work_id=str(version.work_id) if version else None,
+            work_version_id=str(version.id) if version else None,
+            outbound_policy=file.outbound_policy, rights_status=file.rights_status)
+
+    def query_projection(self, actor: Actor, file_id: UUID, *, query: str | None = None,
+                         selection: MaterialQuerySelection | None = None,
+                         expected_source: MaterialSourcePin | None = None) -> dict:
+        """Prepare a visible editable query, preserving consent, source identity and exact spans."""
+        from citequest.search_v3.query_projection import project_material_query, title_selection
+
+        with self.factory.begin() as db:
+            file, representation, _ = self._source(db, actor, file_id)
+            source = self._query_source_pin(db, file, representation)
+            if expected_source is not None and source != expected_source:
+                raise DomainError("material_similarity_source_changed", 409)
+            fragment, reason = None, "user_query"
+            if query is None and selection is None:
+                rows = list(db.scalars(select(MaterialFragment).where(MaterialFragment.owner_id == actor.owner_id,
+                    MaterialFragment.file_id == file_id, MaterialFragment.representation_id == representation.id,
+                    MaterialFragment.payload["native_provenance"]["structure_version"].as_string() == "docling-native-structure/1",
+                    MaterialFragment.payload["native_provenance"]["item_label"].as_string() == "title")
+                    .order_by(MaterialFragment.ordinal, MaterialFragment.id).limit(17)))
+                candidates = [self._query_fragment(row) for row in rows]
+                selection, reason = title_selection(candidates)
+                if selection is not None:
+                    fragment = next(row for row in candidates if row["id"] == selection.fragment_id)
+            elif selection is not None:
+                row = db.scalar(select(MaterialFragment).where(MaterialFragment.id == selection.fragment_id,
+                    MaterialFragment.owner_id == actor.owner_id, MaterialFragment.file_id == file_id,
+                    MaterialFragment.representation_id == representation.id))
+                if row is None:
+                    raise DomainError("material_similarity_selection_changed", 409)
+                fragment = self._query_fragment(row)
+            projection = project_material_query(source, query=query, selection=selection, fragment=fragment) if query is not None or selection is not None else None
+            after_file, after_representation, _ = self._source(db, actor, file_id)
+            if self._query_source_pin(db, after_file, after_representation) != source:
+                raise DomainError("material_similarity_source_changed", 409)
+            return {"source": source, "projection": projection, "reason": reason}
+
+    def verify_query_projection(self, actor: Actor, file_id: UUID, projection: MaterialQueryProjection) -> None:
+        """Reauthorize after search IO; a public result cannot waive private source revocation."""
+        with self.factory.begin() as db:
+            file, representation, _ = self._source(db, actor, file_id)
+            if self._query_source_pin(db, file, representation) != projection.source:
+                raise DomainError("material_similarity_source_changed", 409)
+            if projection.selection is not None:
+                row = db.scalar(select(MaterialFragment).where(MaterialFragment.id == projection.selection.fragment_id,
+                    MaterialFragment.owner_id == actor.owner_id, MaterialFragment.file_id == file_id,
+                    MaterialFragment.representation_id == representation.id))
+                if row is None or sha(self._query_fragment(row)["text"]) != projection.fragment_sha256:
+                    raise DomainError("material_similarity_selection_changed", 409)
 
     def _source(self, db: Session, actor: Actor, file_id: UUID) -> tuple[File, ParsedRepresentation, dict]:
         # Repeated authorization in one SQLAlchemy Session must not reuse stale

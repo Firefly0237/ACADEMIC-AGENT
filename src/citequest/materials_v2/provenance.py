@@ -13,6 +13,7 @@ from typing import Any
 from .text import MaterialError
 
 BASIS = "docling-text-provenance-page-view/1"
+STRUCTURE_VERSION = "docling-native-structure/1"
 
 
 def _digest(value: Any) -> str:
@@ -33,12 +34,49 @@ def _box(box: dict, width: float, height: float) -> list[float]:
     return [left, bottom, right, top]
 
 
-def native_pdf_view(document: dict, *, source_sha256: str, native_sha256: str, config_sha256: str, page_count: int) -> dict:
+def _native_structure(item: dict, cell: dict | None = None) -> dict:
+    """Copy declared Docling structure without inferring reading order or headers."""
+    result = {"structure_version": STRUCTURE_VERSION}
+    if "label" in item:
+        if type(item["label"]) is not str:
+            raise MaterialError("NATIVE_STRUCTURE_LABEL_INVALID")
+        result["item_label"] = item["label"]
+    parent = item.get("parent")
+    if parent is not None:
+        if not isinstance(parent, dict) or type(parent.get("$ref")) is not str:
+            raise MaterialError("NATIVE_STRUCTURE_PARENT_INVALID")
+        result["parent_ref"] = parent["$ref"]
+    if item.get("label") == "section_header" and "level" in item:
+        if type(item["level"]) is not int or item["level"] < 1:
+            raise MaterialError("NATIVE_STRUCTURE_SECTION_LEVEL_INVALID")
+        result["section_level"] = item["level"]
+    if cell is not None:
+        structure = {}
+        for name in ("row_span", "col_span", "start_row_offset_idx", "end_row_offset_idx",
+                     "start_col_offset_idx", "end_col_offset_idx"):
+            if name in cell:
+                if type(cell[name]) is not int or cell[name] < (1 if name.endswith("_span") else 0):
+                    raise MaterialError("NATIVE_TABLE_CELL_STRUCTURE_INVALID")
+                structure[name] = cell[name]
+        for name in ("column_header", "row_header", "row_section"):
+            if name in cell:
+                if type(cell[name]) is not bool:
+                    raise MaterialError("NATIVE_TABLE_HEADER_FLAG_INVALID")
+                structure[name] = cell[name]
+        if structure:
+            result["table_cell"] = structure
+    return result
+
+
+def native_pdf_view(document: dict, *, source_sha256: str, native_sha256: str, config_sha256: str,
+                    page_count: int, structure_version: str | None = STRUCTURE_VERSION) -> dict:
     """Build exact source quotes from native text and validated native proof.
 
     Locator Unicode offsets address this explicit, hashed page representation,
     never a claimed intrinsic PDF string or offsets in the normalized index.
     """
+    if structure_version not in {None, STRUCTURE_VERSION}:
+        raise MaterialError("NATIVE_STRUCTURE_VERSION_UNSUPPORTED")
     raw_pages = document.get("pages", {})
     if set(raw_pages) != {str(n) for n in range(1, page_count + 1)}:
         raise MaterialError("NATIVE_DOCUMENT_PAGE_SET_MISMATCH")
@@ -103,9 +141,14 @@ def native_pdf_view(document: dict, *, source_sha256: str, native_sha256: str, c
             missing.append({"item_ref": reference, "reason": getattr(exc, "code", type(exc).__name__), "native_text_characters": len(original), "native_prov": proofs})
             continue
         for index, proof, quote in planned:
+            native = {"item_ref": reference, "prov_index": index, "charspan_in_native_text": proof["charspan"],
+                      "native_text_sha256": hashlib.sha256(original.encode()).hexdigest(),
+                      "native_orig_sha256": hashlib.sha256(item.get("orig", "").encode()).hexdigest(),
+                      "orig_differs_from_text": item.get("orig") != original}
+            if structure_version is not None:
+                native.update(_native_structure(item))
             append(f"{reference}/prov/{index}", quote, proof["page_no"], proof["bbox"],
-                   {"item_ref": reference, "prov_index": index, "charspan_in_native_text": proof["charspan"], "native_text_sha256": hashlib.sha256(original.encode()).hexdigest(),
-                    "native_orig_sha256": hashlib.sha256(item.get("orig", "").encode()).hexdigest(), "orig_differs_from_text": item.get("orig") != original},
+                   native,
                    "formula" if item.get("label") == "formula" else "paragraph")
         if item.get("label") == "formula":
             formulas.append(f"{reference}: recognized formula text is unverified; consult the source PDF")
@@ -123,7 +166,11 @@ def native_pdf_view(document: dict, *, source_sha256: str, native_sha256: str, c
             try:
                 if len(proofs) != 1 or not cell.get("bbox"):
                     raise MaterialError("TABLE_CELL_PAGE_OR_BOX_NOT_UNAMBIGUOUS")
-                append(cell_ref, quote, proofs[0]["page_no"], cell["bbox"], {"table_ref": reference, "cell_index": index, "cell_text_sha256": hashlib.sha256(quote.encode()).hexdigest()}, "table")
+                native = {"table_ref": reference, "cell_index": index,
+                          "cell_text_sha256": hashlib.sha256(quote.encode()).hexdigest()}
+                if structure_version is not None:
+                    native.update(_native_structure(table, cell))
+                append(cell_ref, quote, proofs[0]["page_no"], cell["bbox"], native, "table")
             except (MaterialError, KeyError, TypeError) as exc:
                 missing.append({"item_ref": cell_ref, "reason": getattr(exc, "code", type(exc).__name__)})
         table_warnings.append(f"{reference}: native cell text/boxes preserved; cell semantics and merged-cell relationships are not independently verified")
@@ -133,6 +180,8 @@ def native_pdf_view(document: dict, *, source_sha256: str, native_sha256: str, c
         page["text_sha256"] = hashlib.sha256(page["text"].encode()).hexdigest()
     source_view = {"basis": BASIS, "file_sha256": source_sha256, "native_document_sha256": native_sha256, "config_sha256": config_sha256,
                    "pages": [pages[n] for n in sorted(pages)], "missing_ranges": missing}
+    if structure_version is not None:
+        source_view["native_structure_version"] = structure_version
     representation_id = _digest(source_view)
     for block in blocks:
         block["representation_id"] = representation_id

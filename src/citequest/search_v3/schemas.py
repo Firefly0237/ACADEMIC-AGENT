@@ -43,9 +43,8 @@ class SearchRequest(Strict):
     @field_validator("q")
     @classmethod
     def nonempty_query(cls, value: str) -> str:
-        if not value.strip() or any(ord(c) < 32 and c not in "\t\n\r" for c in value):
-            raise ValueError("query must contain visible text and no binary control characters")
-        return value
+        from citequest.platform_v3.input_text import request_text
+        return request_text(value)
 
     @model_validator(mode="after")
     def bounded_page(self):
@@ -120,6 +119,42 @@ class SearchPage(Strict):
     model_calls: Literal[0] = 0
 
 
+class CSLName(Strict):
+    literal: str = Field(min_length=1)
+
+
+class CSLDate(Strict):
+    model_config = ConfigDict(serialize_by_alias=True)
+    date_parts: list[list[int]] = Field(alias="date-parts", min_length=1, max_length=1)
+
+
+class CSLItem(Strict):
+    model_config = ConfigDict(serialize_by_alias=True)
+    id: str = Field(min_length=1)
+    type: Literal["document", "article", "article-journal", "paper-conference", "book", "chapter", "thesis", "report", "manuscript", "dataset"]
+    title: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    author: list[CSLName] | None = Field(default=None, min_length=1, exclude_if=lambda value: value is None)
+    issued: CSLDate | None = Field(default=None, exclude_if=lambda value: value is None)
+    DOI: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    URL: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    container_title: str | None = Field(default=None, alias="container-title", exclude_if=lambda value: value is None)
+    volume: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    issue: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    page: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    publisher: str | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class MetadataObservation(Strict):
+    publication_snapshot_id: UUID
+    observation_id: UUID
+    source_namespace: str
+    observed_at: datetime
+    window_lower_bound: datetime
+    observed_watermark: datetime
+    current_status_confirmed: Literal[False] = False
+    complete_global_or_latest_sync_claimed: Literal[False] = False
+
+
 class PaperDetail(PaperSummary):
     pdf_license: Literal["CC-BY-4.0"] | None = None
     pdf_is_unmodified: Literal[True] | None = None
@@ -128,6 +163,9 @@ class PaperDetail(PaperSummary):
     coordinate_system: Literal["unicode_codepoints_in_metadata_recipe", "unicode_codepoints_in_native_literal"]
     links_status: Literal["source_provided", "not_in_source"]
     citation_status: Literal["complete", "incomplete_metadata"]
+    csl: CSLItem | None = Field(default=None, exclude_if=lambda value: value is None)
+    citation_missing_fields: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+    metadata_observation: MetadataObservation | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class SimilarRequest(Strict):

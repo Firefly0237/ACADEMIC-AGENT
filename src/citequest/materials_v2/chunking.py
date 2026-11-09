@@ -63,7 +63,7 @@ class SourceChunker:
                                                        length_function=self.count, strip_whitespace=False, keep_separator=True,
                                                        separators=["\n\n", "\n", "。", "；", " ", ""])
         self.tokenizer_version = f"{self.profile['model_id']}@{self.profile['revision']};tokenizers={self.profile['tokenizers_version']};special=true;sha256={self.profile['sha256']}"
-        self.chunker_version = "langchain-recursive1.1.3-2048-0+hf-overflow512-stride64/source-map1"
+        self.chunker_version = "langchain-recursive1.1.3-2048-0+hf-overflow512-stride64/source-map2"
         self._verification_depth: ContextVar[int] = ContextVar("source_chunker_verification_depth", default=0)
         self._verification_scope: ContextVar[_VerificationScope | None] = ContextVar("source_chunker_verification_scope", default=None)
 
@@ -173,9 +173,12 @@ class SourceChunker:
                     locator["char_end"] = block["locator"]["char_start"] + b
                     if locator["kind"] == "text":
                         locator["line_1based"] += len(re.findall(r"\r\n|\r|\n", source[:a]))
-                    chunks.append({"source_block_id": block["block_id"], "source_text": quote, "source_text_sha256": hashlib.sha256(quote.encode()).hexdigest(),
+                    chunk = {"source_block_id": block["block_id"], "source_text": quote, "source_text_sha256": hashlib.sha256(quote.encode()).hexdigest(),
                                    "index_text": quote, "locator": locator, "granularity": block.get("granularity", "paragraph"), "token_count": span["token_count"],
                                    "tokenizer_version": self.tokenizer_version, "tokenizer_profile_sha256": self.profile_sha256, "chunker_version": self.chunker_version,
                                    "target_exceeded_due_to_source_boundary": span["target_exceeded_due_to_source_boundary"],
-                                   "bbox_granularity": "native region enclosing this character span" if locator["kind"] == "pdf" else None})
+                                   "bbox_granularity": "native region enclosing this character span" if locator["kind"] == "pdf" else None}
+                    if block.get("native_provenance", {}).get("structure_version") is not None:
+                        chunk["native_provenance"] = copy.deepcopy(block["native_provenance"])
+                    chunks.append(chunk)
         return chunks

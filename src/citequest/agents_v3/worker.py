@@ -48,6 +48,8 @@ class WorkerConfig(Strict):
     material_config_file: Path | None = None
     decisionrag_config_file: Path | None = Field(default=None, exclude_if=lambda value: value is None)
     decisionrag_config_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")] | None = Field(default=None, exclude_if=lambda value: value is None)
+    rerank_config_file: Path | None = Field(default=None, exclude_if=lambda value: value is None)
+    rerank_config_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")] | None = Field(default=None, exclude_if=lambda value: value is None)
     fixture_evidence_file: Path | None = None
     skill_root: Path
     temporary_directory: Path
@@ -63,6 +65,13 @@ class WorkerConfig(Strict):
 
     @model_validator(mode="after")
     def paired_development_policy_reference(self) -> WorkerConfig:
+        if (self.rerank_config_file is None) != (self.rerank_config_sha256 is None):
+            raise ValueError("reranking requires a trusted configuration file and exact SHA")
+        if self.rerank_config_file is not None:
+            if self.mode != "live" or self.tool_mode != "search" or self.catalog_scope_policy != "task-catalog-snapshot/1":
+                raise ValueError("reranking requires live search and pinned product catalog scope")
+            from citequest.research_v3.rerank import load_config
+            load_config(self.rerank_config_file, self.rerank_config_sha256)
         if self.model_metadata_receipt_files is not None:
             from .model_contracts import model_contract
             for alias in self.model_metadata_receipt_files:
@@ -147,6 +156,11 @@ async def run_once(config: WorkerConfig, *, transport: httpx2.MockTransport | No
             from citequest.research_v3.decisionrag_task import task_requests_navigation
             if task_requests_navigation(execution.snapshot()) and config.decisionrag_config_file is None:
                 raise AgentError("decisionrag_runtime_not_configured")
+            from .product_profiles import retrieval_rerank_protocol
+            rerank_task = execution.snapshot()
+            if retrieval_rerank_protocol(rerank_task) is not None and (
+                    config.rerank_config_file is None or config.rerank_config_sha256 != rerank_task["profile"]["rerank_config_sha256"]):
+                raise AgentError("rerank_runtime_configuration_not_bound", 503)
             if campaign is not None:
                 # Claim first validates the exact history and scoped durable queue;
                 # an unknown hold must not flush unrelated state before admission.
@@ -168,6 +182,9 @@ async def run_once(config: WorkerConfig, *, transport: httpx2.MockTransport | No
                     **({"decisionrag_config_file": str(config.decisionrag_config_file),
                         "decisionrag_config_sha256": config.decisionrag_config_sha256}
                         if config.decisionrag_config_file is not None else {}),
+                    **({"rerank_config_file": str(config.rerank_config_file),
+                        "rerank_config_sha256": config.rerank_config_sha256}
+                        if config.rerank_config_file is not None else {}),
                     **({'catalog_scope_policy': config.catalog_scope_policy} if config.catalog_scope_policy is not None else {})}), encoding="utf-8")
                 research = execution.snapshot()["kind"] == "research"
                 async with MCPTools(execution, tool_config, lazy=research) as tools:
@@ -197,14 +214,17 @@ async def run_once(config: WorkerConfig, *, transport: httpx2.MockTransport | No
                     provider.before_payload_dispatch = validate_context_before_wire
                     workflow = AgentGraph(execution, provider, tools, memory, config.skill_root)
 
-                    def authorize_dialogue_refs(actor: Actor, task_id: UUID, refs: list[str]) -> None:
-                        # A read-only projection hook for explicit new graph
-                        # versions; it cannot widen the running Task identity.
+                    def authorize_dialogue_refs(actor: Actor, task_id: UUID, refs: list[str], *,
+                                                allow_owned_history: bool = False) -> None:
+                        # Dialogue reads stay on the running Task. The historical
+                        # research reader may recheck a bound parent's sources
+                        # under the same owner and the normal evidence ACLs.
                         from citequest.research_v3.evidence import EvidenceAccess
                         from citequest.search_v3.runtime import service_from_config
 
                         current = execution.snapshot()
-                        if (actor.owner_id,task_id) != (current["owner_id"],execution.task_id):
+                        if (actor.owner_id != current["owner_id"] or
+                                (not allow_owned_history and task_id != execution.task_id)):
                             raise AgentError("dialogue_anchor_task_identity_changed",403)
                         if config.search_config_file is None:
                             raise AgentError("dialogue_anchor_source_authorization_unavailable",503)
@@ -243,8 +263,28 @@ async def run_once(config: WorkerConfig, *, transport: httpx2.MockTransport | No
                                         material = material_service(config.material_config_file)
                                     access = EvidenceAccess(database, search, material)
                                     actor = Actor(execution.snapshot()["owner_id"])
+                                    def read_material_bibliography(file_id: str) -> dict:
+                                        from citequest.research_v3.brief_service import read_confirmed_material_bibliography
+                                        from citequest.v2.domain import DomainError
+                                        from citequest.v2.services import Catalog
+
+                                        try:
+                                            with search.factory.begin() as db:
+                                                if execution.snapshot()["profile"]["profile_id"] == "research-revision-v1":
+                                                    from citequest.research_v3.brief_service import read_historical_confirmed_material_bibliography
+                                                    return read_historical_confirmed_material_bibliography(
+                                                        Catalog(db, actor), UUID(state["intake"]["brief_id"]),
+                                                        state["intake"]["brief_revision"], UUID(file_id),
+                                                        expected_brief_sha256=state["intake"]["brief_sha256"])
+                                                return read_confirmed_material_bibliography(
+                                                    Catalog(db, actor), UUID(state["intake"]["brief_id"]), UUID(file_id),
+                                                    expected_brief_sha256=state["intake"]["brief_sha256"])
+                                        except DomainError as error:
+                                            raise ValueError(error.code) from None
+
                                     return check_references(state, read_evidence=lambda ref: access.read(actor, execution.task_id, ref),
-                                        read_paper=lambda locator: search.detail(actor, locator))
+                                        read_paper=lambda locator: search.detail(actor, locator),
+                                        read_material_bibliography=read_material_bibliography)
                                 finally:
                                     with ExitStack() as cleanup:
                                         if search is not None:
@@ -255,10 +295,27 @@ async def run_once(config: WorkerConfig, *, transport: httpx2.MockTransport | No
                                             if material.native_index is not None:
                                                 cleanup.callback(material.native_index.native.close)
                             workflow.reference_preflight = reference_preflight
-                        from .research_task import ResearchTaskGraph, ResearchTaskGraphV4, ResearchTaskGraphV5
-                        workflow = (ResearchTaskGraphV5 if execution.snapshot()["profile"]["profile_id"] == "research-v5"
-                            else ResearchTaskGraphV4 if execution.snapshot()["profile"]["profile_id"] == "research-v4"
-                            else ResearchTaskGraph)(workflow)
+                        if execution.snapshot()["profile"]["profile_id"] in {"research-review-v1", "research-revision-v1"}:
+                            from .database import TaskService
+                            from .research_history import HistoricalResearchReader
+                            from .research_review import ResearchReviewGraph
+
+                            def authorize_history_refs(actor: Actor, source_task_id: UUID, refs: list[str]) -> None:
+                                authorize_dialogue_refs(actor, source_task_id, refs, allow_owned_history=True)
+
+                            workflow.research_history = HistoricalResearchReader(
+                                TaskService(database, config.limits), memory, authorize_history_refs)
+                            if execution.snapshot()["profile"]["profile_id"] == "research-revision-v1":
+                                from .research_revision import ResearchRevisionGraph
+                                workflow = ResearchRevisionGraph(workflow)
+                            else:
+                                workflow = ResearchReviewGraph(workflow)
+                        else:
+                            from .research_task import ResearchTaskGraph, ResearchTaskGraphV4, ResearchTaskGraphV5, ResearchTaskGraphV6
+                            workflow = (ResearchTaskGraphV6 if execution.snapshot()["profile"]["profile_id"] == "research-v6"
+                                else ResearchTaskGraphV5 if execution.snapshot()["profile"]["profile_id"] == "research-v5"
+                                else ResearchTaskGraphV4 if execution.snapshot()["profile"]["profile_id"] == "research-v4"
+                                else ResearchTaskGraph)(workflow)
                     await _run_graph_to_completion(workflow.run, graph_stopping.set)
                 return {"status": "processed", "task_id": str(execution.task_id), "run_id": str(execution.run_id)}
         except BaseException as exc:

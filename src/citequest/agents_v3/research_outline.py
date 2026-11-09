@@ -131,6 +131,8 @@ class ResearchOutlineFlow:
         raw, key = self.send(state, "planner", self.boundary.identity_model(Outline,
             brief_sha256=state["intake"]["brief_sha256"]), PLANNER_POLICY, data)
         control.update(raw=raw, source_key=key, route="review")
+        if self.boundary.audited_handoffs():
+            control["author_model_key"] = key
         return {"outline_control": control}
 
     def feedback(self, state, code, *, target, details=None):
@@ -172,6 +174,8 @@ class ResearchOutlineFlow:
             data["validation_feedback"] = control["feedback"]
         raw, key = self.send(state, "reviewer", self.review_model(state), REVIEW_POLICY, data)
         control.update(review_raw=raw, source_key=key, route="finish")
+        if self.boundary.audited_handoffs():
+            control["review_model_key"] = key
         return {"outline_control": control}
 
     def validate_review(self, state):
@@ -236,8 +240,14 @@ class ResearchOutlineFlow:
                 "fields": control["missing_fields"], "questions": [{"field": field, "question": QUESTIONS[field]}
                     for field in control["missing_fields"]], "basis": "independently_reviewed_missing_user_facts"}}
         if control["accepted"]:
-            handoffs = self.boundary.handoff(state, "planner", control["candidate"])
-            handoffs.append({"role": "reviewer", "sha256": digest(control["review"]), "artifact": control["review"]})
+            sources = ({control["author_model_key"]: "citequest_research_outline_planner"}
+                if self.boundary.audited_handoffs() else {})
+            handoffs = self.boundary.handoff(state, "planner", control["candidate"], sources=sources,
+                parents={"brief": state["intake"]["brief_sha256"]})
+            sources = ({control["review_model_key"]: "citequest_research_outline_reviewer"}
+                if self.boundary.audited_handoffs() else {})
+            handoffs.append(self.boundary.handoff_entry("reviewer", control["review"], sources=sources,
+                parents={"outline": digest(control["candidate"])}))
             return {"outline": control["candidate"], "outline_review": control["review"],
                 "research_capacity": control["admission"], "handoffs": handoffs, "next": "literature_search"}
         capacity_limited = control.get("failure") == "complete_research_and_school_capacity_unavailable"

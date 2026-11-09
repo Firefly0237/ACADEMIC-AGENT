@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from citequest.search_v3.models import SearchSnapshot
 from citequest.search_v3.schemas import SearchRequest, Strict
+from citequest.search_v3.query_projection import snapshot_search_request
 from citequest.v2.domain import DomainError
 from citequest.v2.models import SCHEMA, Base, History, J
 from citequest.v2.services import Catalog, digest
@@ -44,7 +45,7 @@ def record_search(catalog: Catalog, value: SearchActivityInput) -> dict:
             raise DomainError("owned_live_search_snapshot_required", 404)
         if digest(snapshot.request) != snapshot.query_sha256:
             raise DomainError("search_history_snapshot_hash_mismatch", 409)
-        request = SearchRequest.model_validate(snapshot.request, strict=True)
+        request = snapshot_search_request(snapshot.request)
         old = catalog.db.scalar(select(SearchActivity).where(
             SearchActivity.owner_id == catalog.actor.owner_id, SearchActivity.search_snapshot_id == snapshot.id))
         if old is not None:

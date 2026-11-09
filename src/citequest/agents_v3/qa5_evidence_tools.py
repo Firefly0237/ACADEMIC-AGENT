@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import time
 from uuid import UUID
 
 from citequest.research_v3.evidence import EvidenceAccess, reference_selections
@@ -11,15 +12,17 @@ from citequest.search_v3.schemas import PaperLocator, SearchRequest
 from citequest.v2.domain import Actor
 
 from .catalog_scope import POLICY, task_policy
-from .contracts import AgentError, canonical
+from .contracts import AgentError, canonical, digest
+from .product_profiles import retrieval_rerank_protocol
 from .chunk_tool_policy import uses_typed_chunk_tools
 
 
 class QA5EvidenceTools:
-    def __init__(self, database, search, material, context, registered, register, catalog_pins):
+    def __init__(self, database, search, material, context, registered, register, catalog_pins, *, reranker=None):
         self.database, self.search, self.material = database, search, material
         self.context, self.registered, self.register, self.catalog_pins = context, registered, register, catalog_pins
         self.access = EvidenceAccess(database, search, material)
+        self.reranker = reranker
 
     def task(self) -> dict:
         task = self.context()
@@ -50,10 +53,16 @@ class QA5EvidenceTools:
             "count_basis":"actual EvidenceAccess.read invocations, not disk IO or SQL operation counts",
             "authority":"current_Task_issued_refs_source_ACL_literal_and_catalog_pins"}
 
-    def search_chunks(self, query: str, limit: int) -> dict:
+    def search_chunks(self, query: str, limit: int, *, remaining_ms: int | None = None) -> dict:
+        started = time.monotonic()
         if not isinstance(query, str) or not 1 <= len(query) <= 2000 or type(limit) is not int or not 1 <= limit <= 20:
             raise AgentError("qa5_chunk_search_arguments_invalid")
         task = self.task()
+        rerank = retrieval_rerank_protocol(task) is not None
+        if rerank and (self.reranker is None
+                or self.reranker.configuration_sha256 != task["profile"]["rerank_config_sha256"]
+                or type(remaining_ms) is not int or not 1 <= remaining_ms <= 30000):
+            raise AgentError("rerank_server_configuration_or_deadline_required", 503)
         actor = Actor(task["owner_id"])
         selected = reference_selections(task["brief"])
         if selected and len(selected) > limit:
@@ -109,8 +118,26 @@ class QA5EvidenceTools:
             raise AgentError("qa5_chunk_delivery_identity_or_capacity_invalid", 503)
         self.register(evidence)
         verification = self.verify([value["ref_id"] for value in evidence]) if evidence else None
+        ranking = {}
+        if rerank:
+            def scope_hash(value):
+                return digest({**{key: str(value[key]) for key in ("id", "owner_id", "project_id")},
+                    **{key: value[key] for key in ("epoch", "revision", "brief", "profile")}})
+
+            initial_scope = scope_hash(task)
+
+            def check_scope():
+                if scope_hash(self.task()) != initial_scope:
+                    raise AgentError("rerank_Task_scope_changed", 409)
+
+            left_ms = remaining_ms - int((time.monotonic() - started) * 1000)
+            if left_ms <= 0:
+                raise AgentError("rerank_active_budget_exhausted", 503)
+            evidence, receipt = self.reranker.rerank(query, evidence, remaining_ms=left_ms, check_scope=check_scope)
+            verification = self.verify([value["ref_id"] for value in evidence]) if evidence else None
+            ranking = {"rerank_receipt": receipt}
         self.task()
         return {"status":"ok", "empty":not evidence,"evidence":evidence,"fixture":False,
             "retrieval_policy":"source-chunk-hybrid/1", "scope":"per_selected_document" if selected else "bounded_pinned_catalog",
             "document_coverage":documents,"retrieval_receipts":receipts,"fresh_verification":verification,
-            "full_document_coverage_claimed":False}
+            "full_document_coverage_claimed":False, **ranking}

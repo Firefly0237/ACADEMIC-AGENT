@@ -1,0 +1,20 @@
+{
+  "schema_version": "citequest-agent-evaluation-cases/1",
+  "key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "cases": [
+    {
+      "command_hmac": "command_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "source": "synthetic",
+      "expected_tool_calls": [
+        {
+          "tool_hmac": "tool_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "arguments_hmac": "arguments_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ],
+      "expected_result": {"publication_status": "validated_ai_review", "command_outcome": "completed"},
+      "require_trajectory_match": true,
+      "require_literal_citations": true,
+      "exclude_if": []
+    }
+  ]
+}

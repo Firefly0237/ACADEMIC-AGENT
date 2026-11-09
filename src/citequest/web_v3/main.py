@@ -9,7 +9,7 @@ from typing import Literal
 
 import uvicorn
 from fastapi import FastAPI
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from citequest.search_v3.runtime import service_from_config
 from citequest.v2.db import engine, sessions
@@ -36,6 +36,13 @@ class Config(BaseModel):
     agent_config_file: str | None = None
     export_config_file: str | None = None
     port: int = Field(default=8080, ge=1024, le=65535)
+    trusted_proxy_networks: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("trusted_proxy_networks")
+    @classmethod
+    def explicit_proxy_networks(cls, values: list[str]) -> list[str]:
+        from .proxy_trust import proxy_networks
+        return proxy_networks(values)
 
 
 def application(config: Config) -> FastAPI:
@@ -123,7 +130,8 @@ def main() -> None:
         access_log=False,
         timeout_keep_alive=5,
         timeout_graceful_shutdown=20,
-        proxy_headers=False,
+        proxy_headers=bool(config.trusted_proxy_networks),
+        forwarded_allow_ips=",".join(config.trusted_proxy_networks) if config.trusted_proxy_networks else None,
     )
 
 

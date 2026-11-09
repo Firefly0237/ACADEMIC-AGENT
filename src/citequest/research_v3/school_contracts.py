@@ -13,6 +13,11 @@ from citequest.agents_v3.contracts import Strict, canonical, digest
 TEXT = Annotated[str, Field(min_length=1, max_length=5000)]
 SHA = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 SOURCE_URL = "https://cs.sjtu.edu.cn/en/Graduate_Announcements/1086.html"
+SOURCE_URL_2025 = "https://www.cs.sjtu.edu.cn/bsyjs_notice/1931.html"
+LEGACY_PROFILE_ID = "sjtu-scs-2024-master-cn-capacity-demo/3"
+CURRENT_PROFILE_ID = "sjtu-scs-2025-master-cn-capacity-demo/1"
+LEGACY_SCOPE = "2024_grade_SJTU_SCS_master_public_template_not_universal_current_school_policy"
+CURRENT_SCOPE = "2025_grade_SJTU_SCS_master_public_template_not_universal_current_school_policy"
 TEMPLATE_SHA = "6bd1b4efb2106451686f15c406b9ae03b586939eca0d81604f20ab2c75a2da8d"
 CSL_SHA = "0ca3d2c7c881cd98cdd81098b5349f5921edf430498aa9a5a41918621cf7cc45"
 TOKEN = re.compile(r"\[@(S[1-9][0-9]*)\]")
@@ -24,14 +29,12 @@ def han(text: str) -> int:
 
 
 class SchoolProfile(Strict):
-    id: Literal["sjtu-scs-2024-master-cn-capacity-demo/3"] = "sjtu-scs-2024-master-cn-capacity-demo/3"
+    id: Literal[LEGACY_PROFILE_ID, CURRENT_PROFILE_ID] = LEGACY_PROFILE_ID
     document_mode: Literal["capacity_demo"] = "capacity_demo"
-    source_url: Literal[SOURCE_URL] = SOURCE_URL
+    source_url: Literal[SOURCE_URL, SOURCE_URL_2025] = SOURCE_URL
     template_sha256: Literal[TEMPLATE_SHA] = TEMPLATE_SHA
     csl_sha256: Literal[CSL_SHA] = CSL_SHA
-    scope: Literal["2024_grade_SJTU_SCS_master_public_template_not_universal_current_school_policy"] = (
-        "2024_grade_SJTU_SCS_master_public_template_not_universal_current_school_policy"
-    )
+    scope: Literal[LEGACY_SCOPE, CURRENT_SCOPE] = LEGACY_SCOPE
     literature_minimum_han: Literal[5000] = 5000
     demonstration_minimum_han: Literal[8000] = 8000
     demonstration_maximum_han: Literal[12000] = 12000
@@ -42,6 +45,13 @@ class SchoolProfile(Strict):
     maximum_blocks_per_section: Literal[3] = 3
     section_wire_overhead_bytes: Literal[600] = 600
     cross_review_mode: Literal["all14_full_literal_sections"] = "all14_full_literal_sections"
+
+    @model_validator(mode="after")
+    def registered_source(self) -> SchoolProfile:
+        expected = (SOURCE_URL, LEGACY_SCOPE) if self.id == LEGACY_PROFILE_ID else (SOURCE_URL_2025, CURRENT_SCOPE)
+        if (self.source_url, self.scope) != expected:
+            raise ValueError("school_profile_source_and_cohort_mismatch")
+        return self
 
 
 class SectionSpec(Strict):
@@ -150,15 +160,40 @@ class RequestCoverage(Strict):
     performed_experiments_invented: bool
 
 
+class ReferenceMetadataSource(Strict):
+    provenance: Literal["current_authorized_source_metadata", "user_confirmed"]
+    source_ref: dict
+    file_sha256: SHA | None = Field(default=None, exclude_if=lambda value: value is None)
+    representation_id: SHA | None = Field(default=None, exclude_if=lambda value: value is None)
+    bibliography_sha256: SHA | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def confirmed_material_pin(self) -> ReferenceMetadataSource:
+        if self.provenance == "user_confirmed" and (
+            self.source_ref.get("kind") != "material_file" or not self.file_sha256
+            or not self.representation_id or not self.bibliography_sha256
+        ):
+            raise ValueError("user-confirmed metadata must retain its exact material and bibliography pins")
+        return self
+
+
 class ReferenceAdmission(Strict):
     status: Literal["admitted"] = "admitted"
     provenance: Literal["current_authorized_metadata", "explicit_reference_fixture"]
     context_sha256: SHA
     references: list[dict] = Field(min_length=1, max_length=20)
+    metadata_sources: dict[str, ReferenceMetadataSource] | None = Field(default=None, max_length=20,
+        exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def metadata_matches_aliases(self) -> ReferenceAdmission:
+        if self.metadata_sources and set(self.metadata_sources) != {item.get("id") for item in self.references}:
+            raise ValueError("metadata provenance must identify every bibliography alias")
+        return self
 
 
 class SchoolDocument(Strict):
-    schema_version: Literal["citequest-school-document/3"] = "citequest-school-document/3"
+    schema_version: Literal["citequest-school-document/3", "citequest-school-document/4"] = "citequest-school-document/3"
     profile: SchoolProfile
     brief_sha256: SHA
     reviewed_plan_sha256: SHA
@@ -173,6 +208,13 @@ class SchoolDocument(Strict):
     context_manifest: dict
     performed_experiments: Literal[False] = False
     submission_ready: Literal[False] = False
+
+    @model_validator(mode="after")
+    def profile_version(self) -> SchoolDocument:
+        expected = "citequest-school-document/3" if self.profile.id == LEGACY_PROFILE_ID else "citequest-school-document/4"
+        if self.schema_version != expected:
+            raise ValueError("school_document_profile_version_mismatch")
+        return self
 
     def content_hash(self) -> str:
         return digest([item.model_dump(mode="json") for item in self.sections])

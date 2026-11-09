@@ -603,16 +603,26 @@ class SavedPaperService:
         }
 
     def record_view(self, operation_id: UUID, paper: PaperLocator) -> dict:
-        # A view is not a save or completed download; replays still verify current source.
+        return self.record_activity(operation_id, paper, "view")
+
+    def record_activity(self, operation_id: UUID, paper: PaperLocator, kind: str = "view") -> dict:
+        if kind not in {"view", "download_requested"}:
+            raise DomainError("invalid_paper_activity", 422)
+        # Record an intent, never infer browser transfer completion. Replays
+        # still verify the current source through its typed locator.
         detail = self.read_paper(self.actor, paper)
         if not isinstance(detail, PaperDetail) or detail.paper != paper:
             raise DomainError("current_paper_detail_contract_invalid", 503)
+        if kind == "download_requested" and not detail.pdf_url:
+            raise DomainError("paper_download_source_unavailable", 409)
 
         def effect() -> dict:
-            identifier = self.catalog.append_history("view", "paper:" + paper.kind + ":" + paper.id)
+            identifier = self.catalog.append_history(kind, "paper:" + paper.kind + ":" + paper.id)
             self.db.flush()
-            return {"history_id": str(identifier), "kind": "view", "recorded": "view_only"}
+            return {"history_id": str(identifier), "kind": kind,
+                "recorded": "view_only" if kind == "view" else "download_requested_only"}
 
         return self.catalog.operation(
-            operation_id, {"operation": "typed_paper_view", "paper": paper.model_dump(mode="json")}, effect
+            operation_id, {"operation": "typed_paper_view" if kind == "view" else "typed_paper_download_requested",
+                "paper": paper.model_dump(mode="json")}, effect
         )

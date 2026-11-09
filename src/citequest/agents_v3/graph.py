@@ -107,10 +107,14 @@ class AgentGraph:
         from .product_profiles import qa_execution_protocol
         qa_protocol = qa_execution_protocol(self.execution.snapshot())
         if self.execution.snapshot()["profile"]["profile_id"] == "qa-v9":
-            from .product_profiles import qa_content_protocol
+            from .product_profiles import qa_content_protocol, qa_retrieval_protocol
             if qa_content_protocol(self.execution.snapshot()) == "isolated1":
-                from .qa_separated import QASeparated
-                self.qa6 = QASeparated(self)
+                if qa_retrieval_protocol(self.execution.snapshot()) == "adaptive1":
+                    from .qa_adaptive_retrieval import QAAdaptive
+                    self.qa6 = QAAdaptive(self)
+                else:
+                    from .qa_separated import QASeparated
+                    self.qa6 = QASeparated(self)
             else:
                 from .qa_v9 import QA9
                 self.qa6 = QA9(self)

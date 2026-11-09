@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from citequest.agents_v3.contracts import digest
 from citequest.research_v3.school_contracts import CSL_SHA, TEMPLATE_SHA, SchoolDocument
+from citequest.research_v3.school_profiles import get_profile, public_profiles
 
 from .contracts import Format
 from .service import ExportProfile
@@ -36,6 +37,7 @@ class DockerRenderer:
         toolchain_identity: dict,
         certified_capacity_manifest: Path,
         certified_capacity_manifest_sha256: str,
+        templates: dict[str, Path] | None = None,
     ) -> None:
         if re.fullmatch(r"sha256:[a-f0-9]{64}", image_id) is None:
             raise ValueError("immutable_export_image_id_required")
@@ -70,6 +72,14 @@ class DockerRenderer:
         self.profile = profile
         self.docker, self.config, self.image_id = docker.resolve(), docker_config.resolve(), image_id
         self.template, self.csl = template.resolve(), csl.resolve()
+        routes = templates if templates is not None else {
+            item["id"]: template for item in public_profiles()["profiles"]
+        }
+        self.templates = {}
+        for identifier, path in routes.items():
+            if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != get_profile(identifier).template_sha256:
+                raise ValueError("registered_school_template_route_mismatch")
+            self.templates[identifier] = path.resolve()
         self.identity, self.certification = toolchain_identity, certified_capacity_manifest_sha256
         self.environment = {
             name: value
@@ -92,6 +102,11 @@ class DockerRenderer:
     ) -> RenderBundle:
         if not 0 < timeout_seconds <= 90:
             raise ValueError("bounded_export_job_timeout_required")
+        selected_profile = get_profile(document.profile.id)
+        template = self.templates.get(selected_profile.id)
+        if (document.profile != selected_profile or template is None or template.is_symlink()
+            or hashlib.sha256(template.read_bytes()).hexdigest() != selected_profile.template_sha256):
+            raise ValueError("registered_school_template_route_mismatch")
         deadline = time.monotonic() + timeout_seconds
 
         def remaining() -> float:
@@ -156,7 +171,7 @@ class DockerRenderer:
         for source, target, readonly in (
             (inputs, "/inputs", True),
             (artifacts, "/outputs", False),
-            (self.template, "/assets/sjtu.docx", True),
+            (template, "/assets/sjtu.docx", True),
             (self.csl, "/assets/harvard.csl", True),
         ):
             if "," in str(source):

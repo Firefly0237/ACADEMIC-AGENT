@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Markdown } from "../../Markdown";
 import type { DraftExtraction, BriefSuggestion } from "../research/types";
 import { SchoolDraft, type SchoolDraftDocument } from "../research/SchoolDraft";
@@ -6,6 +7,32 @@ import { EvidenceLink } from "./EvidenceLink";
 import { EvidenceNavigation, type EvidenceNavigationReport } from "./EvidenceNavigation";
 import { claimStatusText, relationText } from "./progress";
 import { WorksetResult, type WorksetReport } from "./WorksetResult";
+import { revisionSelection, type ReviewSource } from "../research/review";
+import { RevisionOutcome, type RevisionOutcomeData } from "../research/RevisionOutcome";
+
+export type ManuscriptReviewReport = {
+  schema_version: "citequest-research-review/1";
+  source_document_sha256: string;
+  source_binding_sha256: string;
+  role_reports: Array<{
+    role: "evidence" | "methods" | "structure";
+    assessment: "no_blocking_findings" | "revision_recommended" | "insufficient_information";
+    sections: Array<{ section_id: string; status: "no_issue_identified" | "needs_revision" | "insufficient_information"; reason: string }>;
+    findings: Array<{
+      id: string; section_ids: string[]; severity: "critical" | "major" | "minor";
+      kind: "source_support" | "methodology" | "structure" | "requirements" | "missing_information";
+      manuscript_quote: string; description: string; recommendation: string;
+      citations: Array<{ ref_id: string; quote: string }>;
+    }>;
+  }>;
+  aggregation: {
+    decision: "revise" | "needs_input" | "no_blocking_findings";
+    reason: string;
+    findings: Array<{ finding_key: string; disposition: "retained" | "disputed" | "needs_user_input"; reason: string }>;
+    conflicts: Array<{ id: string; finding_keys: string[]; explanation: string }>;
+    actions: Array<{ section_ids: string[]; finding_keys: string[]; recommendation: string }>;
+  };
+};
 
 export type AgentResult = WorksetReport & DraftExtraction & {
   text?: string;
@@ -21,12 +48,80 @@ export type AgentResult = WorksetReport & DraftExtraction & {
   interrupts?: any[];
   suggestions?: BriefSuggestion[];
   school_document?: SchoolDraftDocument;
+  review_report?: ManuscriptReviewReport;
+  revision_outcome?: RevisionOutcomeData;
+  diagnostics?: {
+    phase: string; error_codes: string[];
+    completed_roles: Array<"evidence" | "methods" | "structure" | "aggregate">;
+    remaining_roles: Array<"evidence" | "methods" | "structure" | "aggregate">;
+  };
   status?: string;
   requirements_revision?: number;
   requirements_sha256?: string;
   citation_protocol?: string;
   evidence_navigation?: EvidenceNavigationReport;
 };
+
+const reviewerNames = { evidence: "文献依据", methods: "实验设计与统计方法", structure: "可行性与结构" };
+function ManuscriptReview({ taskId, report, onRevisionRequest, revisionDisabled = false }: {
+  taskId: string; report: ManuscriptReviewReport;
+  onRevisionRequest?: (findingKeys: string[]) => Promise<void> | void; revisionDisabled?: boolean;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [selectionError, setSelectionError] = useState("");
+  const findings = report.role_reports.flatMap(role => role.findings.map(finding => ({ key: `${role.role}:${finding.id}`, section_ids: finding.section_ids })));
+  const selection = revisionSelection(findings, selected);
+  function toggle(key: string, checked: boolean) {
+    const next = checked ? [...selected, key] : selected.filter(item => item !== key);
+    const proposed = revisionSelection(findings, next);
+    if (next.length && !proposed.valid) { setSelectionError(proposed.reason); return; }
+    setSelected(next); setSelectionError("");
+  }
+  const assessments = { no_blocking_findings: "本轮未识别阻断问题", revision_recommended: "建议修订", insufficient_information: "需要补充信息" };
+  const severities = { critical: "关键问题", major: "主要问题", minor: "次要问题" };
+  const dispositions = { retained: "保留", disputed: "存在分歧", needs_user_input: "需你确认" };
+  const sectionStates = { no_issue_identified: "本轮未识别问题", needs_revision: "建议修订", insufficient_information: "信息不足" };
+  return <section className="card" aria-label="多智能体评审报告">
+    <h3>分角色评审</h3>
+    <p className="muted">评审意见对应所选稿件版本，原稿保持保留。</p>
+    <p>{report.aggregation.reason}</p>
+    {report.role_reports.map(role => <details key={role.role}>
+      <summary>{reviewerNames[role.role]} · {assessments[role.assessment]} · {role.findings.length} 项意见</summary>
+      {role.findings.map(finding => <article key={finding.id}>
+        {onRevisionRequest && <label><input type="checkbox" checked={selected.includes(`${role.role}:${finding.id}`)} disabled={revisionDisabled}
+          onChange={event => toggle(`${role.role}:${finding.id}`, event.target.checked)} />采纳此意见用于修订</label>}
+        <h4>{finding.id} · {severities[finding.severity]}{finding.kind === "missing_information" ? " · 待补信息" : ""}</h4>
+        <p className="muted">对应章节：{finding.section_ids.join("、")}</p>
+        <blockquote><p className="source-quote">{finding.manuscript_quote}</p><small>原稿片段</small></blockquote>
+        <Markdown text={finding.description} />
+        <p><strong>建议：</strong>{finding.recommendation}</p>
+        {finding.citations.map((citation, index) => <div key={`${citation.ref_id}:${index}`}>
+          <p className="source-quote">{citation.quote}</p>
+          <EvidenceLink taskId={taskId} refId={citation.ref_id} focus={citation} />
+        </div>)}
+      </article>)}
+      <details><summary>逐节覆盖 · {role.sections.length} 节</summary>
+        {role.sections.map(section => <p key={section.section_id}><strong>{section.section_id} · {sectionStates[section.status]}</strong> · {section.reason}</p>)}
+      </details>
+    </details>)}
+    {!!report.aggregation.findings.length && <details><summary>意见处理情况</summary>
+      {report.aggregation.findings.map(finding => <p key={finding.finding_key}><strong>{finding.finding_key} · {dispositions[finding.disposition]}</strong> · {finding.reason}</p>)}
+    </details>}
+    {!!report.aggregation.conflicts.length && <section aria-label="保留的评审分歧">
+      <h4>保留的分歧</h4>
+      {report.aggregation.conflicts.map(conflict => <p key={conflict.id}><strong>{conflict.finding_keys.join("、")}</strong> · {conflict.explanation}</p>)}
+    </section>}
+    {!!report.aggregation.actions.length && <details><summary>建议处理顺序</summary>
+      {report.aggregation.actions.map((action, index) => <p key={index}>{action.finding_keys.join("、")} · {action.recommendation}</p>)}
+    </details>}
+    {onRevisionRequest && <section aria-label="选择定向修订范围">
+      <p className="muted">本次最多采纳 8 条意见、涉及两个章节。未选意见完整保留，原稿与评审报告不会被覆盖。</p>
+      <p>已选 {selected.length} 条意见 · {selection.section_ids.length} 个章节。</p>
+      {selectionError && <p className="notice" role="alert">{selectionError}</p>}
+      <button type="button" disabled={revisionDisabled || !selection.valid} onClick={() => void onRevisionRequest(selected)}>修订所选意见</button>
+    </section>}
+  </section>;
+}
 
 export type CoverageReport = {
   claim_coverage?: Array<{ claim_id?: string; state?: string }>;
@@ -122,7 +217,10 @@ function presentationClaims(result: AgentResult): any[][] | null {
 }
 
 /** The same read-only renderer is used for the current result and saved turns. */
-export function TaskAnswer({ taskId, result, historical = false }: { taskId: string; result: AgentResult; historical?: boolean }) {
+export function TaskAnswer({ taskId, result, historical = false, sourceBinding, onRevisionRequest, revisionDisabled }: {
+  taskId: string; result: AgentResult; historical?: boolean; sourceBinding?: ReviewSource;
+  onRevisionRequest?: (findingKeys: string[]) => Promise<void> | void; revisionDisabled?: boolean;
+}) {
   const paragraphs = presentationClaims(result);
   const claimCards = result.claims?.map((claim: any) => <article className="claim" key={claim.id}>
     <b>{claim.id} · {claimStatusText(claim.status)}</b>
@@ -131,7 +229,7 @@ export function TaskAnswer({ taskId, result, historical = false }: { taskId: str
       <p className="source-quote">{edge.quote}</p>
       {edge.quote_locator && <small>原文字符 {edge.quote_locator.span_start}–{edge.quote_locator.span_end}（按来源文本计数，非 PDF 页码）</small>}
       <small>{relationText(edge.relation)} · {edge.rationale}</small>
-      <EvidenceLink taskId={taskId} refId={edge.ref_id} focus={edge} />
+      <EvidenceLink taskId={taskId} refId={edge.ref_id} focus={edge} sourceBinding={sourceBinding} />
     </blockquote>)}
     {claim.limitations?.map((text: string) => <p className="muted" key={text}>{text}</p>)}
     <ClaimReviewDetails claimId={claim.id} review={result.review} grid={result.review_grid} />
@@ -147,10 +245,20 @@ export function TaskAnswer({ taskId, result, historical = false }: { taskId: str
       {!!value.open_conflicts?.length && <p className="notice">有 {value.open_conflicts.length} 项未解决的信息冲突，请先在研究档案中明确选择。</p>}
     </section>)}
     {!!result.documents?.length && <WorksetResult result={result}
-      evidence={(ref, focus) => <EvidenceLink taskId={taskId} refId={ref} focus={focus} />} />}
-    {result.school_document && <SchoolDraft taskId={taskId} document={result.school_document} allowExport={!historical}
-      evidence={ref => <EvidenceLink taskId={taskId} refId={ref} />} />}
-    {result.text && !result.school_document && !result.claims?.length && !result.documents?.length && <Markdown text={result.text} />}
+      evidence={(ref, focus) => <EvidenceLink taskId={taskId} refId={ref} focus={focus} sourceBinding={sourceBinding} />} />}
+    {result.revision_outcome && result.school_document && <RevisionOutcome outcome={result.revision_outcome} document={result.school_document} />}
+    {result.school_document && <SchoolDraft taskId={taskId} document={result.school_document} allowExport={!historical || !!sourceBinding} sourceBinding={sourceBinding}
+      evidence={ref => <EvidenceLink taskId={taskId} refId={ref} sourceBinding={sourceBinding} />} />}
+    {result.review_report && <ManuscriptReview taskId={taskId} report={result.review_report} onRevisionRequest={onRevisionRequest} revisionDisabled={revisionDisabled} />}
+    {["research_review_partial", "research_revision_partial"].includes(result.status || "") && result.diagnostics && <section className="notice" aria-label="稿件任务未完成">
+      <strong>本轮稿件任务尚未完成</strong>
+      {result.status === "research_review_partial" ? <>
+        <p>已完成：{result.diagnostics.completed_roles.map(role => role === "aggregate" ? "意见汇总" : reviewerNames[role]).join("、") || "暂无"}。</p>
+        <p>尚未完成：{result.diagnostics.remaining_roles.map(role => role === "aggregate" ? "意见汇总" : reviewerNames[role]).join("、") || "请查看执行记录"}。</p>
+      </> : <p>本次修订尚未发布通过审查的新稿，原稿与评审报告保留。执行情况见诊断与过程记录。</p>}
+    </section>}
+    {result.text && result.review_report && <details><summary>查看评审报告全文</summary><Markdown text={result.text} /></details>}
+    {result.text && !result.review_report && !result.school_document && !result.claims?.length && !result.documents?.length && <Markdown text={result.text} />}
     {paragraphs ? <>
       <section aria-label="回答正文">
         {paragraphs.map((group, index) => <section key={index}>
@@ -162,7 +270,7 @@ export function TaskAnswer({ taskId, result, historical = false }: { taskId: str
             {group.map(claim => <div key={claim.id}>
               <strong>{claim.id} · {claimStatusText(claim.status)}</strong>
               {claim.edges?.map((edge: any, ordinal: number) => <EvidenceLink key={ordinal}
-                taskId={taskId} refId={edge.ref_id} focus={edge} />)}
+                taskId={taskId} refId={edge.ref_id} focus={edge} sourceBinding={sourceBinding} />)}
               {!claim.edges?.length && <p className="muted">本条未提供可定位引用，请查看逐条依据中的不足说明。</p>}
             </div>)}
           </details>
@@ -183,7 +291,7 @@ export function TaskAnswer({ taskId, result, historical = false }: { taskId: str
       <summary>原文引用 · {result.citations.length} 处</summary>
       {result.citations.map((citation, index) => <blockquote key={index}>
         <p className="source-quote">{citation.quote}</p>
-        <EvidenceLink taskId={taskId} refId={citation.ref_id} focus={citation} />
+        <EvidenceLink taskId={taskId} refId={citation.ref_id} focus={citation} sourceBinding={sourceBinding} />
       </blockquote>)}
     </details>}
     {result.gaps?.map((gap, index) => <p className="muted" key={index}>覆盖缺口：{gap}</p>)}

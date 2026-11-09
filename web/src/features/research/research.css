@@ -3,7 +3,7 @@
 }
 .cq-brief-sources {
   padding: 14px;
-  border: 1px solid #dce5e8;
+  border: 1px solid var(--cq-border, #dce5e8);
   margin: 16px 0;
   border-radius: 8px;
 }
@@ -44,7 +44,7 @@
 .cq-field-state {
   display: inline-block;
   font-size: 0.78rem;
-  color: #5b747b;
+  color: var(--cq-muted, #5b747b);
   font-weight: 400;
   margin-left: 8px;
 }
@@ -62,28 +62,28 @@
   max-width: 100%;
 }
 .cq-more-fields {
-  border-top: 1px solid #dae5e7;
+  border-top: 1px solid var(--cq-border, #dae5e7);
   margin: 22px 0;
   padding-top: 14px;
 }
 .cq-more-fields > summary {
   cursor: pointer;
-  color: #206274;
+  color: var(--cq-link, #206274);
 }
 .cq-save-row {
   margin: 20px 0;
 }
 .cq-success {
-  background: #edf6f1;
+  background: var(--cq-success-surface, #edf6f1);
   padding: 10px 14px;
-  color: #275f4c;
+  color: var(--cq-success-text, #275f4c);
   border-radius: 6px;
   overflow-wrap: anywhere;
 }
 .cq-version-conflict {
-  background: #fff7e9;
+  background: var(--cq-warning-surface, #fff7e9);
   padding: 18px;
-  border: 1px solid #e8d6ae;
+  border: 1px solid var(--cq-warning-border, #e8d6ae);
   border-radius: 8px;
   margin: 16px 0;
 }
@@ -100,7 +100,7 @@
 .cq-table-scroll td {
   padding: 10px;
   vertical-align: top;
-  border-bottom: 1px solid #dce5e8;
+  border-bottom: 1px solid var(--cq-border, #dce5e8);
   max-width: 420px;
   overflow-wrap: anywhere;
   text-align: left;
@@ -110,15 +110,15 @@
   overflow-wrap: anywhere;
 }
 .cq-proposals {
-  border-top: 1px solid #dce5e8;
+  border-top: 1px solid var(--cq-border, #dce5e8);
   margin-top: 24px;
 }
 .cq-proposal {
   padding: 16px;
-  border: 1px solid #dce5e8;
+  border: 1px solid var(--cq-border, #dce5e8);
   border-radius: 8px;
   margin-bottom: 14px;
-  background: #fff;
+  background: var(--cq-surface, #fff);
   min-width: 0;
 }
 .cq-proposal .markdown {
@@ -136,7 +136,7 @@
   overflow-wrap: anywhere;
 }
 .cq-planning-gate {
-  background: #eef5f6;
+  background: var(--cq-tint, #eef5f6);
   border-radius: 8px;
   padding: 18px;
   margin-top: 24px;
@@ -152,13 +152,13 @@
   max-width: 100%;
 }
 .draft-candidates input[type="radio"] { width: auto; margin-right: .5rem; }
-.draft-candidates fieldset { margin: 1rem 0; border: 1px solid var(--line, #d9e1df); border-radius: .5rem; padding: 1rem; }
+.draft-candidates fieldset { margin: 1rem 0; border: 1px solid var(--line, var(--cq-border, #d9e1df)); border-radius: .5rem; padding: 1rem; }
 .draft-candidates label { display: block; line-height: 1.7; }
-.school-contents { padding: 1rem; border: 1px solid #dce5e8; border-radius: .5rem; }
+.school-contents { padding: 1rem; border: 1px solid var(--cq-border, #dce5e8); border-radius: .5rem; }
 .school-contents ol { columns: 2; column-gap: 2rem; }
 .school-section { scroll-margin-top: 1.5rem; margin-top: 2.5rem; }
 .school-draft { min-width: 0; overflow-wrap: anywhere; }
 .export-jobs { list-style: none; padding: 0; }
-.export-jobs li { padding: .75rem 0; border-bottom: 1px solid #dce5e8; }
+.export-jobs li { padding: .75rem 0; border-bottom: 1px solid var(--cq-border, #dce5e8); }
 .export-jobs a { margin: .5rem .5rem .5rem 0; }
 @media (max-width: 650px) { .school-contents ol { columns: 1; } }

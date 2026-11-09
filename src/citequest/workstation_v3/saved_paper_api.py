@@ -114,6 +114,6 @@ def build_router(
 
     @router.post("/paper-activity")
     def paper_activity(body: PaperActivity, current: Service) -> dict:
-        return invoke(current.record_view, body.operation_id, body.paper)
+        return invoke(current.record_activity, body.operation_id, body.paper, body.kind)
 
     return router

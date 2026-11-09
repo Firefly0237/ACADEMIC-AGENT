@@ -82,6 +82,7 @@ class PlanningInput(Strict):
     user_confirmed: dict[BriefField, Text] = Field(max_length=16)
     explicit_unknowns: dict[BriefField, Text] = Field(max_length=16)
     selected_sources: list[EvidenceSelection] = Field(max_length=20)
+    school_profile_id: str | None = Field(default=None, max_length=100, exclude_if=lambda value: value is None)
     draft_source_ids: list[Annotated[str, Field(pattern=r"^[a-f0-9-]{36}$")]] = Field(default_factory=list,
         max_length=4, exclude_if=lambda value: not value)
     open_conflicts: list[IntakeConflict] = Field(default_factory=list, max_length=64)
@@ -243,12 +244,16 @@ class ResearchWorkflow:
         writing_reserve_model_calls: int = 36,
         strict_identity_binding: bool = False,
         review_outline: bool = False,
+        required_fields: tuple[BriefField, ...] = REQUIRED,
+        allow_explicit_unknown: bool = False,
     ) -> None:
         if not 0 <= revision_limit <= 2 or not 0 <= writing_reserve_model_calls <= 48:
             raise AgentError("research_runtime_policy_invalid")
         self.host, self.brief_loader = host, brief_loader
         self.strict_identity_binding = strict_identity_binding
         self.review_outline = review_outline
+        self.required_fields = required_fields
+        self.allow_explicit_unknown = allow_explicit_unknown
         self.revision_limit, self.writing_reserve = revision_limit, writing_reserve_model_calls
         self.literature_flow = ResearchLiteratureFlow(self, checkpointer=True)
         builder = StateGraph(ResearchState)
@@ -270,6 +275,7 @@ class ResearchWorkflow:
         builder.add_edge(START, "intake")
         self.workflow = builder.compile(checkpointer=checkpointer)
         task = self.task()
+        self._audited_handoffs = task["profile"].get("profile_id") == "research-v6"
         self.config = {
             "configurable": {"thread_id": str(self.host.execution.task_id)},
             "recursion_limit": 5 * task["profile"]["model_calls"] + 32,
@@ -279,7 +285,14 @@ class ResearchWorkflow:
         return self.host.execution.snapshot()
 
     def shared_revisions(self) -> bool:
-        return self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5"}
+        return self.task()["profile"].get("profile_id") in {"research-v3", "research-v4", "research-v5", "research-v6"}
+
+    def audited_handoffs(self) -> bool:
+        return self._audited_handoffs
+
+    def missing_intake_fields(self, value: PlanningInput) -> list[BriefField]:
+        return [field for field in self.required_fields if field not in value.user_confirmed
+            and not (field in value.explicit_unknowns and (self.allow_explicit_unknown or field == "preliminary_work"))]
 
     def identity_model(self, model: type[OutputModel], **identities: str) -> type[OutputModel]:
         if not self.strict_identity_binding:
@@ -454,8 +467,24 @@ class ResearchWorkflow:
             "research_progress": progress_from_state(state, result),
         }
 
-    def handoff(self, state: dict, role: str, artifact: dict) -> list[dict]:
-        return [*state["handoffs"], {"role": role, "sha256": digest(artifact), "artifact": artifact}]
+    def handoff_entry(self, role: str, artifact: dict, *, sources: dict[str, str] | None = None,
+                      parents: dict[str, str] | None = None, revision: dict | None = None) -> dict:
+        entry = {"role": role, "sha256": digest(artifact), "artifact": artifact}
+        if self.audited_handoffs():
+            from citequest.research_v3.handoff_contracts import bind_handoff
+            entry = bind_handoff(entry, sources or {}, parents or {}, revision=revision)
+        return entry
+
+    def handoff(self, state: dict, role: str, artifact: dict, **binding) -> list[dict]:
+        return [*state["handoffs"], self.handoff_entry(role, artifact, **binding)]
+
+    def handoff_audit(self, entries: list[dict], brief_sha256: str) -> dict:
+        from citequest.research_v3.handoff_contracts import collect_handoff_audit, source_keys
+        task = self.task()
+        receipts = self.host.execution.settled_model_receipts(source_keys(entries))
+        return collect_handoff_audit(entries, receipts, task_id=str(task["id"]),
+            command_id=str(self.host.execution.command["id"]), brief_sha256=brief_sha256,
+            profile_sha256=task["profile_hash"])
 
     def payload(self, state: dict, role: str, model: type[BaseModel] | dict, name: str, policy: str, data: dict,
                 *, logical_key: str | None = None) -> dict:
@@ -560,12 +589,7 @@ class ResearchWorkflow:
 
     def intake(self, state: dict) -> dict:
         value = self.synchronized_input()
-        missing = [
-            field
-            for field in REQUIRED
-            if field not in value.user_confirmed
-            and not (field == "preliminary_work" and field in value.explicit_unknowns)
-        ]
+        missing = self.missing_intake_fields(value)
         while missing or value.open_conflicts:
             interrupt(
                 {
@@ -578,12 +602,7 @@ class ResearchWorkflow:
                 }
             )
             value = self.current_input()
-            missing = [
-                field
-                for field in REQUIRED
-                if field not in value.user_confirmed
-                and not (field == "preliminary_work" and field in value.explicit_unknowns)
-            ]
+            missing = self.missing_intake_fields(value)
         history = state.get("history", [])
         if state.get("intake") and state["intake"] != value.model_dump(mode="json"):
             history = [
@@ -754,7 +773,8 @@ class ResearchWorkflow:
                 "reasons": ["research_literature_content_or_review_unresolved"],
                 "literature_revision_audit": result["audit"], "school_format_ready": False}}
         return self.accept_literature(state, result["candidate"], result["review"], audit=result["audit"],
-            source_protocol=result["source_protocol"], review_grid=result["review_grid"])
+            source_protocol=result["source_protocol"], review_grid=result["review_grid"],
+            model_sources=result.get("model_sources"))
 
     def literature_write(self, state: dict) -> dict:
         if self.shared_revisions():
@@ -794,7 +814,8 @@ class ResearchWorkflow:
         return self.accept_literature(state, answer.model_dump(), review.model_dump())
 
     def accept_literature(self, state: dict, answer_value: dict, review_value: dict, *, audit: list[dict] | None = None,
-                          source_protocol: dict | None = None, review_grid: dict | None = None) -> dict:
+                          source_protocol: dict | None = None, review_grid: dict | None = None,
+                          model_sources: dict[str, str] | None = None) -> dict:
         question = self.question(state)
         if self.shared_revisions():
             from citequest.research_v3.quote_spans import ResearchAnswerV3
@@ -822,13 +843,15 @@ class ResearchWorkflow:
                     "question_id": question["id"],
                     "gaps": answer.gaps,
                 },
-                "handoffs": self.handoff(state, "literature", artifact),
+                "handoffs": self.handoff(state, "literature", artifact, sources=model_sources,
+                    parents={"outline": digest(state["outline"]), "brief": state["intake"]["brief_sha256"]}),
             }
         return {
             "literature": literature,
             "next": "methods",
             "experiment_index": 0,
-            "handoffs": self.handoff(state, "literature", artifact),
+            "handoffs": self.handoff(state, "literature", artifact, sources=model_sources,
+                parents={"outline": digest(state["outline"]), "brief": state["intake"]["brief_sha256"]}),
         }
 
     def methods(self, state: dict) -> dict:
@@ -870,7 +893,9 @@ class ResearchWorkflow:
             "experiment_index": index if next_node == "methods" else 0,
             "rq_index": state["rq_index"] + (next_node == "literature_search"),
             "next": next_node,
-            "handoffs": self.handoff(state, "methods", handoff.model_dump()),
+            "handoffs": self.handoff(state, "methods", handoff.model_dump(),
+                sources={self.model_key(state, identifier + ":method"): "citequest_research_method"},
+                parents={"research_question": digest(question), "literature": digest(state["literature"][-1])}),
         }
 
     def assemble_plan(self, state: dict) -> dict:
@@ -1003,7 +1028,9 @@ class ResearchWorkflow:
             "unit_reviews": [*state["unit_reviews"], review.model_dump()],
             "review_history": [
                 *state["review_history"],
-                {"revision_round": state["revision_round"], "review": review.model_dump()},
+                {"revision_round": state["revision_round"], "review": review.model_dump(),
+                    **({"model_source_key": self.model_key(state, question.id + ":review:" + str(state["revision_round"]))}
+                        if self.audited_handoffs() else {})},
             ],
             "review_index": index,
             "next": "review_unit" if index < len(plan.questions) else "review_global",
@@ -1039,7 +1066,9 @@ class ResearchWorkflow:
             "global_review": review.model_dump(),
             "review_history": [
                 *state["review_history"],
-                {"revision_round": state["revision_round"], "review": review.model_dump()},
+                {"revision_round": state["revision_round"], "review": review.model_dump(),
+                    **({"model_source_key": self.model_key(state, "global-review:" + str(state["revision_round"]))}
+                        if self.audited_handoffs() else {})},
             ],
         }
         if any(
@@ -1113,16 +1142,16 @@ class ResearchWorkflow:
             }
         if targets:
             if self.review_outline:
-                from .research_capacity import RESEARCH_OUTPUT_CAP, SCHOOL_NORMAL_CALLS
+                from .research_capacity import RESEARCH_OUTPUT_CAP, is_experiment_task, school_model_calls
                 task = self.task()
                 credits = max(0, 2 - self.host.execution.content_revision_count())
-                needed = (len(targets) + len(plan.questions) + 1 + SCHOOL_NORMAL_CALLS
+                needed = (len(targets) + len(plan.questions) + 1 + school_model_calls(task)
                     + max(0, credits - len(targets)) * max(len(plan.questions) + 2, 3))
                 reasons = []
                 if len(targets) > credits:
                     reasons.append("research_plan_targets_exceed_remaining_shared_revisions")
                 for key, required in (("model_calls", needed), ("output_tokens", needed * RESEARCH_OUTPUT_CAP),
-                        ("tool_calls", 3 * len(state["evidence"]))):
+                        ("tool_calls", (1 if is_experiment_task(task) else 3) * len(state["evidence"]))):
                     if task["profile"][key] - task[key] < required:
                         reasons.append("research_and_school_remaining_" + key + "_insufficient")
             else:
@@ -1242,7 +1271,16 @@ class ResearchWorkflow:
             "review_index": 0,
             "unit_reviews": [] if final else state["unit_reviews"],
             "next": "review_unit" if final else "revise_target",
-            "handoffs": self.handoff(state, "reviser", repair.model_dump()),
+            "handoffs": self.handoff(state, "reviser", repair.model_dump(),
+                sources={self.model_key(state, target + ":repair:" + str(state["revision_round"])):
+                    "citequest_research_target_repair"},
+                parents={"current_target": digest(current.model_dump()), "plan": digest(state["plan"]),
+                    "global_review": digest(state["global_review"])},
+                revision={"target_id": target, "before_sha256": digest(current.model_dump()),
+                    "after_sha256": digest(repair.replacement.model_dump()),
+                    "unaffected_sha256": digest({"questions": [item for item in state["plan"]["questions"] if item["id"] != target],
+                        "experiments": [item for item in state["plan"]["experiments"] if item["id"] != target]}),
+                    "resolved_conflict_refs": repair.resolved_conflict_ids}),
         }
 
     def await_input(self, state: dict) -> dict:
@@ -1316,6 +1354,12 @@ class ResearchWorkflow:
             )
         ]
         task = self.task()
+        handoff_audit = {}
+        if self.audited_handoffs():
+            entries = [*state["handoffs"], *(self.handoff_entry("reviewer", item["review"],
+                sources={item["model_source_key"]: "citequest_research_review"},
+                parents={"reviewed_content": item["review"]["content_sha256"]}) for item in state["review_history"])]
+            handoff_audit = {"handoff_audit": self.handoff_audit(entries, state["intake"]["brief_sha256"])}
         return {
             "next": END,
             "result": {
@@ -1333,6 +1377,7 @@ class ResearchWorkflow:
                 "review_history": state["review_history"],
                 "global_review": state["global_review"],
                 "role_handoffs": state["handoffs"],
+                **handoff_audit,
                 "chapter_plan": sections,
                 "school_format_ready": False,
                 "performed_experiments": False,

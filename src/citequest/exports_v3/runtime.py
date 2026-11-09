@@ -16,6 +16,7 @@ from citequest.material_evidence_v3 import service_from_config as materials_from
 from citequest.platform_v3.blob_config import BlobStoreConfig, create_blob_store
 from citequest.research_v3.evidence import EvidenceAccess
 from citequest.research_v3.school_contracts import SHA
+from citequest.research_v3.school_profiles import public_profiles, template_asset
 from citequest.search_v3.runtime import service_from_config as search_from_config
 from citequest.v2.db import engine, sessions
 from citequest.v2.pagination import Pager
@@ -30,6 +31,7 @@ from .worker import ExportWorker
 class ExportProcessConfig(Strict):
     schema_version: Literal["citequest-export-process/1"]
     workspace: Path
+    release_assets_root: Path | None = None
     release_profile_file: Path
     release_profile_sha256: SHA
     business_dsn_file: Path
@@ -51,6 +53,7 @@ def configured(config_file: Path) -> ExportProcessConfig:
     value = json.loads(config_file.read_text(encoding="utf8"))
     for key in (
         "workspace",
+        "release_assets_root",
         "release_profile_file",
         "business_dsn_file",
         "checkpoint_dsn_file",
@@ -92,7 +95,8 @@ def create_process(config: ExportProcessConfig, *, worker_id: str) -> ExportProc
     """No migration, Saver setup, Task creation, LLM SDK or provider secret read."""
     config = ExportProcessConfig.model_validate(config.model_dump(mode="python"), strict=True)
     release = released(config)
-    identity = verify_release_assets(config.workspace, release)
+    assets_root = config.release_assets_root or config.workspace
+    identity = verify_release_assets(assets_root, release)
     database = Database.from_files(config.business_dsn_file, config.checkpoint_dsn_file, config.memory_dsn_file)
     dsn = (
         config.business_dsn_file.read_text(encoding="utf8").strip().replace("postgresql://", "postgresql+psycopg://", 1)
@@ -116,11 +120,13 @@ def create_process(config: ExportProcessConfig, *, worker_id: str) -> ExportProc
         docker=config.docker_cli,
         docker_config=config.docker_config,
         image_id=release.image_id,
-        template=asset(config.workspace, "assets/export/sjtu-proposal.docx"),
-        csl=asset(config.workspace, "assets/export/harvard.csl"),
+        template=asset(assets_root, template_asset(None)),
+        templates={item["id"]: asset(assets_root, template_asset(item["id"]))
+            for item in public_profiles()["profiles"]},
+        csl=asset(assets_root, "assets/export/harvard.csl"),
         profile=release.profile(),
         toolchain_identity=identity,
-        certified_capacity_manifest=asset(config.workspace, release.capacity_certification_manifest),
+        certified_capacity_manifest=asset(assets_root, release.capacity_certification_manifest),
         certified_capacity_manifest_sha256=release.capacity_certification_manifest_sha256,
     )
     worker = ExportWorker(

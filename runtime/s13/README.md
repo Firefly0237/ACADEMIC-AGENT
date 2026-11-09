@@ -1,62 +1,53 @@
 # 文档导出工具链
 
-导出服务将研究计划草稿转换为DOCX、HTML和PDF。Web/API提交导出任务，独立worker读取队列并保存产物；Linux渲染器负责文档转换。
+Web/API 提交导出任务，独立 worker 读取队列并保存 DOCX、HTML 和 PDF。渲染容器使用固定的 LibreOffice、Pandoc、学校模板、CSL 和字体配置。
 
-## 组件
+## CI 发布
 
-| 组件 | 职责 |
+在 GitHub Actions 手动运行 **Export release**，选择 `build`。流水线构建 `linux/amd64` 镜像，读取实际 image ID 和容器工具链身份，渲染包含长文、36 行表格和 3 个原生公式的容量夹具，检查文字覆盖、A4 页面和页码，保存 PDF 与每页 PNG。
+
+产物 `export-candidate` 包含：
+
+| 文件 | 内容 |
 | --- | --- |
-| `citequest.exports_v3` | 导出接口、队列、产物存储和下载 |
-| `Dockerfile` | LibreOffice、字体与Python依赖镜像 |
-| `release-profile.json` | 镜像、模板、CSL与工具链身份 |
-| `font-packages.lock.json`、`fontconfig.xml` | 字体依赖与匹配配置 |
+| `candidate.json` | 当前源码、镜像、工具链和各产物的 SHA-256 |
+| `toolchain-identity.json` | 实际字体、Python/系统包、模板与源码身份 |
+| `layout/` | 真实 DOCX、HTML、PDF、每页 PNG 和覆盖检查 |
+| `renderer-image.tar` | 可通过 `docker load` 预载的固定镜像 |
 
-## 准备工具链
+已有真实版面认证结果时，再次手动运行，选择 `certify`，输入候选构建的 `candidate_run_id`、仓库内认证文件路径和文件 SHA-256。认证文件使用 `citequest-capacity-render-certification/2`：
 
-1. 准备学校DOCX模板、Harvard CSL文件和产物存储。
-2. 从仓库根目录构建渲染器：
+- `status: passed`、`image_id`、`source_sha256`、`toolchain_sha256`、`font_profile` 与候选一致。
+- `capacity_artifact_sha256` 对应候选的 `layout/capacity.json`。
+- `coverage` 原样绑定实际容量检查，`actual_model_requests` 为 `0`。
+- `visual_review` 包含实际认证的 `status`、`pages_reviewed`、`pages_observed_individually`、`png_sha256` 和 `evidence` 引用；页码与所有 PNG 摘要必须完全匹配候选。
+
+流水线消费真实认证，通过后生成 `export-release`，其中包含新的 `release-profile.json`、认证、工具链身份、固定模板及 API/worker 配置。候选和认证版本各自保留。
+
+对应命令：
 
 ```bash
-docker build -f runtime/s13/Dockerfile -t citequest-export:local .
+python scripts/s13/build_release.py build --output output/export-candidate
+python scripts/s13/build_release.py certify \
+  --candidate output/export-candidate \
+  --certification assets/export/<实际认证文件>.json \
+  --certification-sha256 <实际SHA256> \
+  --output output/export-release
 ```
 
-3. 将镜像ID、模板/CSL摘要、renderer及字体工具链信息配置到导出release profile。
-4. 为独立worker准备数据库连接、搜索配置、产物存储和工作目录。
+## 部署
 
-Python依赖由本目录的`requirements.txt`与`uv.lock`管理。镜像包含LibreOffice、Poppler及文档所需字体。
+API 和 worker 将同一 `export-release` 目录只读挂载至 `/run/export-release`，使用生成的 `export-api.json`、`export-worker.json`。`workspace` 指向应用根 `/opt/citequest`，`release_assets_root` 指向认证发行资产 `/run/export-release`。样例中的 SHA 占位符由流水线生成值替换。Web 的 `export_config_file` 指向 API 配置。
 
-## 运行worker
+渲染器由独立 worker 所连接的 Docker daemon 启动。先在该 daemon 上执行 `docker load --input renderer-image.tar`，再确认 `docker image inspect <image_id> --format '{{.Id}}'` 与 release 一致。此处使用 Docker image ID，与镜像仓库 manifest digest 分别核对。
 
-导出进程配置使用`citequest-export-process/1`：
+Worker 使用 core 的 `export_worker` 构建 target，配置秘密与搜索/材料服务沿用现有角色。为 worker 提供可信 Docker CLI、`docker_config` 和专用 daemon 访问；渲染子容器使用无网络、只读文件系统、非 root 用户和资源限制。
 
-| 配置 | 用途 |
-| --- | --- |
-| `workspace`、`release_profile_file`、`release_profile_sha256` | 工作目录与工具链发布配置 |
-| `business_dsn_file`、`checkpoint_dsn_file`、`memory_dsn_file` | 数据库连接 |
-| `search_config_file`、`material_config_file`、`cursor_key_file` | 来源与分页配置 |
-| `artifact_store` | 私有产物存储 |
-| `worker_spool` | 导出工作目录 |
-| `docker_cli`、`docker_config` | 渲染器的Docker客户端配置 |
-| `limits` | 运行额度 |
-
-在安装了对应Python依赖的环境中启动：
+`worker_spool` 在 worker 与 Docker 宿主机上采用同一绝对路径，例如 `/var/lib/citequest/state/export-job-spool`，以便 daemon 正确解析 bind mount。API 和 worker 使用同一个私有产物存储，配置各自的 spool。
 
 ```bash
 PYTHONPATH=src python -m citequest.exports_v3.cli \
-  --config /etc/citequest/export-worker.json --serve
+  --config /run/core-config/export-worker.json --serve
 ```
 
-使用`--once`处理一次队列轮询。Web配置的`export_config_file`指向`citequest-export-api/1`配置，API与worker使用同一逻辑产物存储和release profile。
-
-## 渲染器接口
-
-PDF渲染容器接收`/inputs/proposal.docx`，将文件写入`/outputs`。入口支持：
-
-```text
---input-root
---output-root
---renderer
---renderer-sha256
-```
-
-研究工作站的导出面板负责选择格式、查看任务进度和下载文件。
+镜像构建采用 [Docker Build](https://docs.docker.com/reference/cli/docker/buildx/build/)；镜像归档采用 [Docker Save](https://docs.docker.com/reference/cli/docker/image/save/)。

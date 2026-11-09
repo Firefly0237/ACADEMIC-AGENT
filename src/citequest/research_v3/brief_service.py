@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import select, tuple_
 
-from citequest.agents_v3.contracts import EvidenceSelection, digest
+from citequest.agents_v3.contracts import EvidenceSelection, canonical, digest
 from citequest.v2.domain import Actor, DomainError
 from citequest.v2.pagination import Pager
 from citequest.v2.services import Catalog
@@ -25,6 +26,84 @@ from .brief import (
     resolve,
 )
 from .brief_models import ResearchBriefRevision, ResearchBriefRow
+
+
+def material_bibliography_pin(catalog: Catalog, file_id: UUID) -> dict:
+    """Read the current owned parser identity without changing its payload or rights."""
+    from citequest.materials_v2.models import MaterialIngestion, MaterialUpload, ParsedRepresentation
+
+    catalog.db.expire_all()
+    file = catalog.file(file_id)
+    if file.status not in {"ready", "partial"}:
+        raise DomainError("material_not_readable", 409)
+    ingestion = catalog.db.scalar(select(MaterialIngestion).where(
+        MaterialIngestion.file_id == file_id, MaterialIngestion.owner_id == catalog.actor.owner_id))
+    representation = catalog.db.get(ParsedRepresentation, ingestion.representation_id) if ingestion and ingestion.representation_id else None
+    if representation is None or representation.owner_id != catalog.actor.owner_id or representation.file_id != file_id or representation.source_sha256 != file.sha256:
+        raise DomainError("material_bibliography_source_changed", 409)
+    upload = catalog.db.scalar(select(MaterialUpload).where(
+        MaterialUpload.file_id == file_id, MaterialUpload.owner_id == catalog.actor.owner_id))
+    return {"file_id": str(file_id), "file_sha256": file.sha256, "representation_id": representation.id,
+        "material_name": upload.display_title if upload else "研究材料"}
+
+
+def read_confirmed_material_bibliography(catalog: Catalog, brief_id: UUID, file_id: UUID,
+                                        *, expected_brief_sha256: str) -> dict:
+    row = catalog.db.scalar(select(ResearchBriefRow).where(ResearchBriefRow.id == brief_id,
+        ResearchBriefRow.owner_id == catalog.actor.owner_id, ResearchBriefRow.deleted_at.is_(None))
+        .execution_options(populate_existing=True))
+    if row is None:
+        raise DomainError("research_brief_not_found", 404)
+    catalog.project(row.project_id)
+    document = BriefService.document(row)
+    if row.document_sha256 != expected_brief_sha256:
+        raise DomainError("research_brief_revision_conflict", 409)
+    identifier = str(file_id)
+    if identifier in {str(value) for value in document.draft_source_ids}:
+        raise DomainError("research_draft_is_not_bibliographic_evidence", 422)
+    record = (document.material_bibliography or {}).get(identifier)
+    if record is None:
+        raise DomainError("research_material_bibliography_required", 422)
+    pin = material_bibliography_pin(catalog, file_id)
+    if record.file_sha256 != pin["file_sha256"] or record.representation_id != pin["representation_id"]:
+        raise DomainError("material_bibliography_source_changed", 409)
+    metadata = record.model_dump(mode="json")
+    return {"bibliography": metadata, "bibliography_sha256": digest(metadata), "provenance": "user_confirmed", "source": pin}
+
+
+def read_historical_confirmed_material_bibliography(
+    catalog: Catalog, brief_id: UUID, brief_revision: int, file_id: UUID, *, expected_brief_sha256: str,
+) -> dict:
+    """A fixed intake version keeps current file rights and confirmation guards."""
+    head = catalog.db.scalar(select(ResearchBriefRow).where(ResearchBriefRow.id == brief_id,
+        ResearchBriefRow.owner_id == catalog.actor.owner_id, ResearchBriefRow.deleted_at.is_(None))
+        .execution_options(populate_existing=True))
+    if head is None:
+        raise DomainError("research_brief_not_found", 404)
+    catalog.project(head.project_id)
+    revision = catalog.db.scalar(select(ResearchBriefRevision).where(
+        ResearchBriefRevision.brief_id == brief_id, ResearchBriefRevision.owner_id == catalog.actor.owner_id,
+        ResearchBriefRevision.revision == brief_revision).execution_options(populate_existing=True))
+    if revision is None:
+        raise DomainError("research_brief_revision_unavailable", 404)
+    document = BriefDocument.model_validate_json(canonical(revision.document), strict=True)
+    if (document.id != brief_id or document.project_id != head.project_id or document.revision != brief_revision
+            or digest(revision.document) != revision.document_sha256
+            or revision.document_sha256 != expected_brief_sha256):
+        raise DomainError("research_brief_revision_integrity_failure", 409)
+    current = BriefService.document(head)
+    identifier = str(file_id)
+    old_record = (document.material_bibliography or {}).get(identifier)
+    current_record = (current.material_bibliography or {}).get(identifier)
+    if (old_record is None or old_record != current_record
+            or identifier in {str(value) for value in document.draft_source_ids}
+            or identifier in {str(value) for value in current.draft_source_ids}):
+        raise DomainError("research_source_bibliography_changed", 409)
+    pin = material_bibliography_pin(catalog, file_id)
+    if old_record.file_sha256 != pin["file_sha256"] or old_record.representation_id != pin["representation_id"]:
+        raise DomainError("material_bibliography_source_changed", 409)
+    metadata = old_record.model_dump(mode="json")
+    return {"bibliography": metadata, "bibliography_sha256": digest(metadata), "provenance": "user_confirmed", "source": pin}
 
 
 class BriefService:
@@ -69,6 +148,18 @@ class BriefService:
 
     def get(self, brief_id: UUID) -> dict:
         return self.present(self.row(brief_id))
+
+    def bibliography_source(self, brief_id: UUID, file_id: UUID) -> dict:
+        document = self.document(self.row(brief_id))
+        identifier = str(file_id)
+        references = {source.id for source in document.selected_sources if source.kind == "material_file"}
+        if identifier not in references or identifier in {str(value) for value in document.draft_source_ids}:
+            raise DomainError("material_not_in_research_reference_scope", 403)
+        pin = material_bibliography_pin(self.catalog, file_id)
+        record = (document.material_bibliography or {}).get(identifier)
+        return {"source": pin, "bibliography": record.model_dump(mode="json") if record else None,
+            "source_matches_confirmation": bool(record and record.file_sha256 == pin["file_sha256"]
+                and record.representation_id == pin["representation_id"])}
 
     def list(self, project_id: UUID, pager: Pager, *, limit: int = 20, cursor: str | None = None) -> dict:
         self.catalog.project(project_id)
@@ -176,7 +267,14 @@ class BriefService:
             row = self.row(brief_id)
             if request.selected_sources is not None:
                 self.authorize_sources(self.actor, request.selected_sources)
-            return self._store(row, apply_turn(self.document(row), request), request.operation_id, "turn")
+            document = apply_turn(self.document(row), request)
+            for identifier, record in (request.material_bibliography or {}).items():
+                if record is None:
+                    continue
+                pin = material_bibliography_pin(self.catalog, UUID(identifier))
+                if record.file_sha256 != pin["file_sha256"] or record.representation_id != pin["representation_id"]:
+                    raise DomainError("material_bibliography_source_changed", 409)
+            return self._store(row, document, request.operation_id, "turn")
 
         self.catalog.operation(
             request.operation_id,
@@ -199,12 +297,16 @@ class BriefService:
         )
         return self.present(self.row(brief_id))
 
-    def planning(self, brief_id: UUID, expected_revision: int) -> dict:
+    def planning(self, brief_id: UUID, expected_revision: int, action: Literal["plan", "experiment"] = "plan") -> dict:
         document = self.document(self.row(brief_id))
         if expected_revision != document.revision:
             raise DomainError("brief_revision_conflict")
         self.authorize_sources(self.actor, document.selected_sources)
-        return planning_payload(document)
+        payload = planning_payload(document, action=action)
+        for identifier in ((document.material_bibliography or {}) if action == "plan" else ()):
+            read_confirmed_material_bibliography(self.catalog, brief_id, UUID(identifier),
+                expected_brief_sha256=digest(document.model_dump(mode="json")))
+        return payload
 
     def set_deleted(self, brief_id: UUID, operation_id: UUID, expected_revision: int, *, deleted: bool) -> dict:
         self.row(brief_id, include_deleted=True)

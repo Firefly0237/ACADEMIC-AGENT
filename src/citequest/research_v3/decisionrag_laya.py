@@ -54,6 +54,7 @@ class LayaLocalConfig:
     max_len: int = 1024
     max_questions: int = 8
     cpu_threads: int = 2
+    navigation_protocol: str = "laya1"
 
 
 class LayaLocalJudge:
@@ -62,7 +63,8 @@ class LayaLocalJudge:
         self._lock = threading.Lock()
         self._forward_count = 0
         self._closed = False
-        if (config.max_len != 1024 or type(config.max_questions) is not int or not 1 <= config.max_questions <= 8
+        if ((config.navigation_protocol, config.max_len) not in {("laya1", 1024), ("laya2", 8192)}
+                or type(config.max_questions) is not int or not 1 <= config.max_questions <= 8
                 or type(config.cpu_threads) is not int or not 1 <= config.cpu_threads <= 2):
             raise AgentError("laya_unvalidated_resource_profile")
         if os.environ.get("HF_HUB_OFFLINE") != "1" or os.environ.get("TRANSFORMERS_OFFLINE") != "1":
@@ -133,6 +135,12 @@ class LayaLocalJudge:
             "device":"cpu", "backend":"eager", "max_len":1024, "head_max_len":256,
             "paper_Jev_1_13_reproduction":False, "shared_state":"same complete alternatives in every question row",
             "KV_state_read_once_claim":False, "remote_code":False, "automatic_device_fallback":False}
+        if config.navigation_protocol == "laya2":
+            if encoder.get("max_position_embeddings") != 8192:
+                self.close()
+                raise AgentError("laya_encoder_long_context_binding_required")
+            self.model_binding.update(max_len=8192, native_default_max_len=1024,
+                encoder_max_position_embeddings=8192, request_context_protocol="laya2")
         self._forward_handle = self.agent.model.register_forward_pre_hook(self._observed_forward)
 
     def _observed_forward(self, _module: object, _args: tuple) -> None:
@@ -150,7 +158,7 @@ class LayaLocalJudge:
         for identifier, question in questions.items():
             internal = self.agent._to_internal(question)  # Pinned official 0.4.22 conversion.
             ids, markers, options, dropped = self._build_sequence(self.agent.tok, state, internal,
-                max_len=1024, head_max_len=256, return_stats=True, return_truncation_stats=True)
+                max_len=self.config.max_len, head_max_len=256, return_stats=True, return_truncation_stats=True)
             unbounded_head, _ = self._build_sequence(self.agent.tok, "", internal, max_len=8192, head_max_len=8192)
             real_head = ids[:len(ids)-dropped["state_tokens_used"]-1]
             if (dropped["truncated"] or dropped["state_tokens_dropped"] != 0
@@ -173,7 +181,7 @@ class LayaLocalJudge:
             forward_before = self._forward_count
             fallback_before = self.agent.cpu_fallback_count
             started = time.monotonic()
-            raw = self.agent.predict(state, questions, max_len=1024, head_max_len=256)
+            raw = self.agent.predict(state, questions, max_len=self.config.max_len, head_max_len=256)
             seconds = time.monotonic()-started
             usage = raw.get("usage")
             answers = raw.get("answers")

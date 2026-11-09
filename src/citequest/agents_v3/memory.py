@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 from uuid import UUID, uuid4
 
+from langgraph.store.base import GetOp
 from langgraph.store.postgres import PostgresStore
 from psycopg.types.json import Jsonb
 
@@ -137,13 +138,17 @@ class MemoryService:
             if len(rows) > 100:
                 raise AgentError("memory_catalog_limit_requires_cleanup", 413)
         values = []
-        with self.database.connect("memory", autocommit=True) as connection:
-            store = PostgresStore(connection)
-            for row in rows:
-                item = store.get(namespace(owner, project), str(row["id"]) + ":" + str(row["revision"]))
-                if item is None or digest(item.value) != row["value_hash"]:
-                    raise AgentError("memory_materialization_unavailable", 503)
-                values.append({"memory_id": str(row["id"]), "revision": row["revision"], **item.value})
+        if rows:
+            with self.database.connect("memory", autocommit=True) as connection:
+                store = PostgresStore(connection)
+                # The official adapter groups keys in one namespace into one
+                # SQL query and restores operation order after reading the rows.
+                items = store.batch([GetOp(namespace(owner, project), str(row["id"]) + ":" + str(row["revision"]))
+                    for row in rows])
+                for row, item in zip(rows, items, strict=True):
+                    if item is None or digest(item.value) != row["value_hash"]:
+                        raise AgentError("memory_materialization_unavailable", 503)
+                    values.append({"memory_id": str(row["id"]), "revision": row["revision"], **item.value})
         # Recheck after Store IO: a concurrent correction/delete must not inject a stale value.
         with self.database.connect() as db:
             self._authorize(db, owner, project)

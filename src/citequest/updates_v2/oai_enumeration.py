@@ -1,6 +1,7 @@
 """Official OAI-PMH fixed-window token state, separate from adopted Atom route."""
 
 from dataclasses import dataclass, field
+from copy import deepcopy
 from datetime import date, datetime
 from urllib.parse import urlencode
 
@@ -55,6 +56,11 @@ class OAIEnumeration:
         if parsed.get('error') == 'badResumptionToken':
             self._restart('badResumptionToken')
             return
+        if parsed.get('error') == 'noRecordsMatch':
+            if self.token is not None:
+                raise ValueError('OAI_empty_window_error_after_continuation')
+            self.token, self.token_expiration, self.finished = None, None, True
+            return
         if parsed.get('error'):
             self.failures.append({'reason': parsed['error'], 'requests_retained': self.requests})
             raise ValueError('OAI_error_no_checkpoint')
@@ -68,3 +74,28 @@ class OAIEnumeration:
             raise ValueError('OAI_opaque_token_cap_exceeded')
         self.token, self.token_expiration = token or None, parsed.get('token_expiration')
         self.finished = self.token is None
+
+    def cursor(self) -> dict:
+        """Only conflict hashes live in PG cursor; complete records live in pages/CAS."""
+        return {"version": "cq.oai-cursor/1", "lower": self.lower.isoformat(), "upper": self.upper.isoformat(),
+            "maximum_requests": self.maximum_requests, "maximum_restarts": self.maximum_restarts,
+            "requests": self.requests, "restarts": self.restarts, "token": self.token,
+            "token_expiration": self.token_expiration, "finished": self.finished,
+            "awaiting_response": self.awaiting_response, "records": {key: {"record_sha256": value["record_sha256"]}
+                for key, value in self.records.items()}, "failures": self.failures}
+
+    @classmethod
+    def restore(cls, value: dict):
+        if value.get("version") != "cq.oai-cursor/1":
+            raise ValueError("versioned_OAI_cursor_required")
+        result = cls(date.fromisoformat(value["lower"]), date.fromisoformat(value["upper"]),
+            value["maximum_requests"], value["maximum_restarts"])
+        for key in ("requests", "restarts", "token", "token_expiration", "finished", "awaiting_response", "records", "failures"):
+            setattr(result, key, deepcopy(value[key]))
+        if (type(result.requests) is not int or type(result.restarts) is not int
+            or type(result.finished) is not bool or type(result.awaiting_response) is not bool
+            or type(result.records) is not dict or len(result.records) > 10000 or type(result.failures) is not list
+            or (result.token is not None and (type(result.token) is not str or len(result.token) > 4096))
+            or not 0 <= result.requests <= result.maximum_requests or not 0 <= result.restarts <= result.maximum_restarts):
+            raise ValueError("OAI_cursor_accounting_invalid")
+        return result

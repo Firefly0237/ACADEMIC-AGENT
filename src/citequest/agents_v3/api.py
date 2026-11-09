@@ -45,7 +45,13 @@ def build_router(service: TaskService, memory: MemoryService, get_actor: Callabl
 
     @router.post("/tasks", status_code=202)
     def create_task(body: TaskCreate, actor: Actor = Depends(get_actor)):
-        if body.kind != "research":
+        if body.profile_id in {"research-review-v1", "research-revision-v1"}:
+            from .research_history import HistoricalResearchReader
+            reader = HistoricalResearchReader(service, memory, authorize_evidence)
+            invoke(reader.read, actor, body.brief.review_source)
+            if body.profile_id == "research-revision-v1":
+                invoke(reader.read_report, actor, body.brief.revision_request.report)
+        elif body.kind != "research":
             invoke(admit_scope, actor, body.brief)
         value = invoke(service.create, actor.owner_id, body)
         return invoke(project_result, actor, value["id"], value)
@@ -54,6 +60,44 @@ def build_router(service: TaskService, memory: MemoryService, get_actor: Callabl
     def task(task_id: UUID, actor: Actor = Depends(get_actor)):
         value = invoke(service.get, actor.owner_id, task_id)
         return invoke(project_result, actor, task_id, value)
+
+    @router.get("/tasks/{task_id}/research-source")
+    def research_source(task_id: UUID, response: Response, command_seq: Annotated[int, Query(ge=1)],
+                        actor: Actor = Depends(get_actor)):
+        from .research_history import HistoricalResearchReader
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Vary"] = "Cookie"
+        return invoke(HistoricalResearchReader(service, memory, authorize_evidence).bind,
+                      actor, task_id, command_seq)
+
+    @router.get("/tasks/{task_id}/research-versions")
+    def research_versions(task_id: UUID, response: Response,
+                          after_command_seq: Annotated[int, Query(ge=0)] = 0,
+                          limit: Annotated[int, Query(ge=1, le=20)] = 20, actor: Actor = Depends(get_actor)):
+        from .research_history import HistoricalResearchReader
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Vary"] = "Cookie"
+        return invoke(HistoricalResearchReader(service, memory, authorize_evidence).versions,
+                      actor, task_id, after_command_seq=after_command_seq, limit=limit)
+
+    @router.get("/tasks/{task_id}/research-version")
+    def research_version(task_id: UUID, response: Response, command_seq: Annotated[int, Query(ge=1)],
+                         actor: Actor = Depends(get_actor)):
+        from .research_history import HistoricalResearchReader
+        reader = HistoricalResearchReader(service, memory, authorize_evidence)
+        snapshot = invoke(reader.read_turn, actor, task_id, command_seq)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Vary"] = "Cookie"
+        return {"source_binding": snapshot.binding, "result": snapshot.result, "source_brief": snapshot.task["brief"]}
+
+    @router.get("/tasks/{task_id}/review-source")
+    def review_source(task_id: UUID, response: Response, command_seq: Annotated[int, Query(ge=1)],
+                      actor: Actor = Depends(get_actor)):
+        from .research_history import HistoricalResearchReader
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Vary"] = "Cookie"
+        return invoke(HistoricalResearchReader(service, memory, authorize_evidence).bind_report,
+                      actor, task_id, command_seq)
 
     @router.get("/tasks/{task_id}/conversation")
     def conversation(task_id: UUID, response: Response, after_seq: Annotated[int, Query(ge=0)] = 0,

@@ -54,7 +54,7 @@ class ExportWorker:
         *,
         worker_id: str,
         spool_dir: Path,
-        admit_references: Callable[[Actor, object, SchoolDocument], list[dict]],
+        admit_references: Callable[..., list[dict]],
     ) -> None:
         if renderer.profile != service.profile:
             raise ValueError("export_worker_toolchain_profile_mismatch")
@@ -76,7 +76,8 @@ class ExportWorker:
         try:
             self.service.fence(row)
             _, document = self.service.document(actor, row["task_id"], row)
-            references = self.admit_references(actor, row["task_id"], document)
+            references = (self.admit_references(actor, row["task_id"], document, source_binding=row["source_binding"])
+                if row.get("source_binding") is not None else self.admit_references(actor, row["task_id"], document))
             expected = {item["id"]: item for item in document.reference_admission.references}
             used = {alias for section in document.sections for alias in TOKEN.findall(section.body())}
             if (

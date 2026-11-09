@@ -8,6 +8,13 @@ export type PaperRef = {
   kind: "metadata_projection" | "native_representation";
   id: string;
 };
+export type CSLReference = {
+  id: string; type: string; title?: string;
+  author?: Array<{ literal: string } | { given?: string; family: string }>;
+  issued?: { "date-parts": number[][] };
+  DOI?: string; URL?: string; "container-title"?: string;
+  volume?: string; issue?: string; page?: string; publisher?: string;
+};
 export type Paper = {
   paper: PaperRef;
   title: string | null;
@@ -22,6 +29,8 @@ export type Paper = {
   pdf_license?: "CC-BY-4.0" | null;
   pdf_is_unmodified?: true | null;
   citation_status?: string;
+  csl?: CSLReference;
+  citation_missing_fields?: string[];
 };
 export type SearchPage = {
   snapshot_id: string;

@@ -18,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -92,6 +93,15 @@ class UpdatePage(Identity, Base):
     parsed: Mapped[dict | None] = mapped_column(J)
 
 
+class FetchReceipt(Base):
+    __tablename__ = "source_fetch_receipts"
+    window_id: Mapped[UUID] = mapped_column(ForeignKey(f"{SCHEMA}.source_update_windows.id"), primary_key=True)
+    sequence: Mapped[int] = mapped_column(Integer, primary_key=True)
+    payload: Mapped[dict] = mapped_column(J)
+    payload_sha256: Mapped[str] = mapped_column(String(64))
+    payload_canonical: Mapped[str] = mapped_column(Text)
+
+
 class UpdateObservation(Identity, Base):
     __tablename__ = "source_update_observations"
     __table_args__ = (UniqueConstraint("page_id", "record_ordinal"), Index("ix_source_observation_native", "security_domain", "source_namespace", "native_id", "created_at", "id"))
@@ -155,3 +165,35 @@ class SourceDenial(Base):
     reason: Mapped[str] = mapped_column(String(80))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     proof: Mapped[dict] = mapped_column(J)
+
+
+class PublicationSnapshot(Identity, Base):
+    __tablename__ = "source_publication_snapshots"
+    base_generation_id: Mapped[UUID] = mapped_column(ForeignKey(f"{SCHEMA}.index_generations.id"))
+    base_snapshot_id: Mapped[UUID] = mapped_column(ForeignKey(f"{SCHEMA}.ingest_snapshots.id"))
+    security_domain: Mapped[str] = mapped_column(String(100))
+    catalog_name: Mapped[str] = mapped_column(String(100))
+    profile_id: Mapped[str] = mapped_column(String(100))
+    policy_sha256: Mapped[str] = mapped_column(String(64))
+    evaluation_sha256: Mapped[str] = mapped_column(String(64))
+    membership_sha256: Mapped[str] = mapped_column(String(64))
+    member_count: Mapped[int] = mapped_column(Integer)
+    payload: Mapped[dict] = mapped_column(J)
+    payload_canonical: Mapped[str] = mapped_column(Text)
+    seal_sha256: Mapped[str] = mapped_column(String(64))
+    created_txid: Mapped[int] = mapped_column(BigInteger, server_default=text("txid_current()"))
+
+
+class PublicationMember(Base):
+    __tablename__ = "source_publication_members"
+    snapshot_id: Mapped[UUID] = mapped_column(ForeignKey(f"{SCHEMA}.source_publication_snapshots.id"), primary_key=True)
+    source_unit_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    source_namespace: Mapped[str] = mapped_column(String(100))
+    native_id: Mapped[str] = mapped_column(String(512))
+    source_revision: Mapped[str | None] = mapped_column(String(100))
+    origin_generation_id: Mapped[UUID | None] = mapped_column(ForeignKey(f"{SCHEMA}.index_generations.id"))
+    origin_seal_id: Mapped[UUID | None] = mapped_column(ForeignKey(f"{SCHEMA}.source_update_seals.id"))
+    reference: Mapped[dict] = mapped_column(J)
+    projection_sha256: Mapped[str] = mapped_column(String(64))
+    source_pointer_sha256: Mapped[str] = mapped_column(String(64))
+    record_canonical: Mapped[str] = mapped_column(Text)

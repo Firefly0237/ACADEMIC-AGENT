@@ -26,27 +26,52 @@ class TaskState(ResearchState, total=False):
 class ResearchTaskGraph:
     strict_identity_binding = False
     review_outline = False
+    experiment_capable = False
 
     def __init__(self, host: AgentGraph) -> None:
         self.host = host
+        from .research_capacity import is_experiment_task
+        self.experiment_task = self.experiment_capable and is_experiment_task(host.execution.snapshot())
+        planning_options = {}
+        if self.experiment_task:
+            from citequest.research_v3.brief import EXPERIMENT_REQUIRED
+            planning_options.update(required_fields=EXPERIMENT_REQUIRED, allow_explicit_unknown=True,
+                writing_reserve_model_calls=0)
         self.planner = ResearchWorkflow(host, lambda: current_planning_input(host.execution), checkpointer=True,
-            strict_identity_binding=self.strict_identity_binding, review_outline=self.review_outline)
+            strict_identity_binding=self.strict_identity_binding, review_outline=self.review_outline, **planning_options)
         builder = StateGraph(TaskState)
         builder.add_node("research_planning", self.planner.workflow if self.planner.shared_revisions()
             else host.observed_node("research_planning", self.plan))
         builder.add_node("school_writing", host.observed_node("school_writing", self.write))
         builder.add_node("intake_suggestions", host.observed_node("research_intake_suggestions", self.help))
         builder.add_node("draft_intake", host.observed_node("research_draft_intake", self.extract))
+        if self.experiment_capable:
+            builder.add_node("experiment_delivery", host.observed_node("experiment_delivery", self.deliver_experiment))
         builder.add_conditional_edges(START, lambda state: {"suggest": "intake_suggestions", "extract": "draft_intake"}.get(
             self.host.execution.snapshot()["brief"].get("research_action"), "research_planning"),
             ["intake_suggestions", "draft_intake", "research_planning"])
         builder.add_edge("intake_suggestions", END)
         builder.add_edge("draft_intake", END)
-        builder.add_conditional_edges("research_planning", lambda state: "school_writing"
-            if state["result"].get("status") == "structured_plan_ready" else END, ["school_writing", END])
+        destinations = ["school_writing", END]
+        if self.experiment_capable:
+            destinations.append("experiment_delivery")
+        builder.add_conditional_edges("research_planning", self.planning_destination, destinations)
         builder.add_edge("school_writing", END)
+        if self.experiment_capable:
+            builder.add_edge("experiment_delivery", END)
         self.workflow = builder.compile(checkpointer=host.saver)
         self.config = {"configurable": {"thread_id": str(host.execution.task_id)}, "recursion_limit": 384}
+
+    def planning_destination(self, state: dict) -> str:
+        if state["result"].get("status") != "structured_plan_ready":
+            return END
+        return "experiment_delivery" if self.experiment_task else "school_writing"
+
+    def deliver_experiment(self, state: dict) -> dict:
+        from citequest.research_v3.experiment_delivery import experiment_result
+        # The planning child's publish node already reapplies source, Brief,
+        # hard-memory and independent-review gates before this pure projection.
+        return {"result": experiment_result(state["result"])}
 
     def plan(self, state: dict) -> dict:
         # This is a child invocation, not a second root graph. The parent's
@@ -109,7 +134,7 @@ class ResearchTaskGraph:
                 validate_wire_intake(self.host.execution, {"input": [{"content": canonical({
                     "context_manifest": output["context_manifest"]}).decode()}]})
             rejected = output.get("publication_status") == "rejected"
-            complete = output.get("status") in {"school_document_ready", "research_suggestions_ready", "research_draft_candidates_ready"}
+            complete = output.get("status") in {"school_document_ready", "research_suggestions_ready", "research_draft_candidates_ready", "experiment_design_ready"}
             if output.get("completion_status", "").startswith("partial"):
                 complete = False
             self.host.execution.finish("waiting_input" if output.get("interrupts") else "failed" if rejected else "succeeded" if complete else "partial",
@@ -128,3 +153,9 @@ class ResearchTaskGraphV5(ResearchTaskGraphV4):
     """Reviewed coordinator output before downstream research or user interrupts."""
 
     review_outline = True
+
+
+class ResearchTaskGraphV6(ResearchTaskGraphV5):
+    """Experiment-only delivery on the reviewed research workflow and ledger."""
+
+    experiment_capable = True

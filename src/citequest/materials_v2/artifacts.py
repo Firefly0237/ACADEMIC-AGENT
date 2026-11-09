@@ -102,7 +102,8 @@ def capture_assets(output: Path, parsed: dict, original: StoredBlob, result: Sto
         check()
         try:
             rebuilt = native_pdf_view(json.loads(store.read(captured["native_document"])), source_sha256=original.sha256,
-                                      native_sha256=captured["native_document"].sha256, config_sha256=config_sha, page_count=page_count)
+                                      native_sha256=captured["native_document"].sha256, config_sha256=config_sha, page_count=page_count,
+                                      structure_version=view.get("native_structure_version"))
         except (ValueError, KeyError, TypeError) as exc:
             raise MaterialError("ASSET_NATIVE_VIEW_RECONSTRUCTION_FAILED") from exc
         if rebuilt != view:

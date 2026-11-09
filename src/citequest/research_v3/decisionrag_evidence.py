@@ -52,7 +52,7 @@ def navigate_issued_evidence(query: str, ref_ids: list[str], judge: BinaryJudge,
                              access: EvidenceAccess, actor: Actor, task_id: UUID,
                              current_task_scope: Callable[[], str],
                              before_decision: Callable[[DecisionRequest], None],
-                             limits: NavigationLimits) -> dict:
+                             limits: NavigationLimits, navigator: Callable = navigate) -> dict:
     """Server-only bridge; `current_task_scope` must call the live Task guard.
 
     Pass the enclosing Execution's current ownership/cancellation/scope guard,
@@ -121,7 +121,7 @@ def navigate_issued_evidence(query: str, ref_ids: list[str], judge: BinaryJudge,
             raise AgentError("decisionrag_issued_source_or_version_changed")
         return binding
 
-    result = navigate(query,documents,judge,scope_binding=binding,check_scope=check_scope,
+    result = navigator(query,documents,judge,scope_binding=binding,check_scope=check_scope,
                       before_decision=before_decision,limits=limits,started_at=started)
     return {**result,"integration_mode":"issued_frontier_hybrid_engineering",
             "full_document_or_corpus_coverage_claimed":False,

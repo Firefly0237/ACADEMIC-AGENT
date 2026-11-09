@@ -20,8 +20,8 @@ COPY runtime/s13/fontconfig.xml /etc/fonts/conf.d/99-citequest-export.conf
 RUN fc-cache -f
 COPY src/citequest src/citequest
 COPY assets/export assets/export
-COPY scripts/s13/export_entry.py scripts/s13/export_entry.py
-COPY scripts/s13/bundle_entry.py scripts/s13/bundle_entry.py
+COPY scripts/s13 scripts/s13
+COPY runtime/s13 runtime/s13
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin cqexport
 USER 10001:10001
 ENTRYPOINT ["python", "scripts/s13/export_entry.py"]

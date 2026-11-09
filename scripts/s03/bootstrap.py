@@ -88,6 +88,9 @@ def permissions(port: int = 25434, database: str = "citequest_s03", *, restored:
         db.execute("GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA cq_app TO cq_s03_app")
         db.execute("REVOKE INSERT,UPDATE,DELETE,TRUNCATE ON cq_app.alembic_version FROM cq_s03_app")
         db.execute("GRANT SELECT ON cq_app.alembic_version TO cq_s03_app")
+        for name in ("source_fetch_receipts", "source_publication_snapshots", "source_publication_members"):
+            if db.execute("SELECT to_regclass(%s)", ("cq_app." + name,)).fetchone()[0] is not None:
+                db.execute(sql.SQL("REVOKE UPDATE,DELETE,TRUNCATE ON cq_app.{} FROM cq_s03_app").format(sql.Identifier(name)))
 
 
 if __name__ == "__main__":

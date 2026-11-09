@@ -35,6 +35,7 @@ const PDF = lazy(() =>
   import("./PDF").then((module) => ({ default: module.PDF })),
 );
 import "./style.css";
+import { ThemeSwitcher } from "./features/appearance/ThemeSwitcher";
 import type { SkillPin } from "./features/agent/ContextSettings";
 import type {
   BriefField,
@@ -43,12 +44,17 @@ import type {
   BriefHelpRequest,
   DraftExtraction,
   PlanningInput,
+  ResearchStartAction,
 } from "./features/research/types";
-import { progressText, resultAvailabilityText, taskFailureText, taskKindText, taskStateText } from "./features/agent/progress";
+import { resultAvailabilityText, taskFailureText, taskKindText, taskStateText } from "./features/agent/progress";
 import { canContinueTask } from "./features/agent/continuation";
-import { newTaskProfile } from "./features/agent/profiles";
+import { newTaskProfile, readTaskCapabilities, type ProfileCapabilities } from "./features/agent/profiles";
+import { canRestartResearchReview, reviewOperationId, revisionSelection, sameReviewSource, sourceBriefFields,
+  type ReviewSource, type ReviewReportSource, type RevisionRequest } from "./features/research/review";
+import { ResearchVersions } from "./features/research/ResearchVersions";
 import type { AgentResult, CoverageReport, ResearchProgressReport } from "./features/agent/TaskAnswer";
 import { CapabilityStatus } from "./features/agent/CapabilityStatus";
+import { TaskProgress } from "./features/agent/TaskProgress";
 import { EvidenceLink } from "./features/agent/EvidenceLink";
 const TaskAnswer = lazy(() => import("./features/agent/TaskAnswer").then(module => ({ default: module.TaskAnswer })));
 const TaskCoverage = lazy(() => import("./features/agent/TaskAnswer").then(module => ({ default: module.TaskCoverage })));
@@ -120,6 +126,7 @@ function App() {
           ) : (
             <a href="/auth/login">登录个人中心 →</a>
           )}
+          <ThemeSwitcher />
           <small>计算机科学 · 有界公开语料</small>
         </div>
       </aside>
@@ -526,8 +533,10 @@ function Detail() {
   const [showPDF, setShowPDF] = useState(false);
   const [similar, setSimilar] = useState<SearchPage | null>(null);
   const [saved, setSaved] = useState(false);
+  const [downloadNotice, setDownloadNotice] = useState("");
   const saveOperation = useRef(crypto.randomUUID());
   const viewOperation = useRef(crypto.randomUUID());
+  const downloadOperation = useRef<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     setPaper(null);
@@ -535,6 +544,8 @@ function Detail() {
     setSimilar(null);
     setShowPDF(false);
     setSaved(false);
+    setDownloadNotice("");
+    downloadOperation.current = null;
     setError(undefined);
     saveOperation.current = crypto.randomUUID();
     viewOperation.current = crypto.randomUUID();
@@ -556,26 +567,25 @@ function Detail() {
         paper: paper.paper,
       }).catch(setError);
   }, [paper]);
+  async function recordDownloadRequest() {
+    if (!paper || !current?.authenticated) return;
+    downloadOperation.current ||= crypto.randomUUID();
+    const operationId = downloadOperation.current;
+    try {
+      await api("/api/v3/workstation/paper-activity", {
+        operation_id: operationId, paper: paper.paper, kind: "download_requested",
+      });
+      if (downloadOperation.current === operationId) downloadOperation.current = null;
+      setDownloadNotice("下载请求已记入个人历史。");
+    } catch (failure) { setError(failure); }
+  }
   const cite = async () => {
-    if (!paper) return;
+    if (!paper?.csl) return;
     try {
       const { Cite } = await import("@citation-js/core");
-      await Promise.all([
-        import("@citation-js/plugin-csl"),
-        import("@citation-js/plugin-bibtex"),
-      ]);
-      const data: any = {
-        id: paper.paper.id,
-        type: "article-journal",
-        ...(paper.title ? { title: paper.title } : {}),
-        ...(paper.authors
-          ? { author: paper.authors.map((a) => ({ literal: a })) }
-          : {}),
-        ...(paper.year ? { issued: { "date-parts": [[paper.year]] } } : {}),
-        ...(paper.source_url ? { URL: paper.source_url } : {}),
-      };
+      await import("@citation-js/plugin-csl");
       setCitation(
-        new Cite([data]).format("bibliography", {
+        new Cite([paper.csl]).format("bibliography", {
           format: "text",
           template: "harvard1",
           lang: "en-US",
@@ -623,13 +633,14 @@ function Detail() {
                   href={paper.pdf_url}
                   target="_blank"
                   rel="noreferrer"
+                  onClick={() => void recordDownloadRequest()}
                 >
                   PDF来源 / 下载 ↗
                 </a>
                 <button onClick={() => setShowPDF(!showPDF)}>在线 PDF</button>
               </>
             )}
-            <button onClick={cite}>Harvard 引用</button>
+            <button onClick={cite} disabled={!paper.csl}>Harvard 引用</button>
             <button
               disabled={saved}
               onClick={async () => {
@@ -662,6 +673,8 @@ function Detail() {
               相似主题
             </button>
           </div>
+          {downloadNotice && <p className="muted" role="status">{downloadNotice}</p>}
+          {!paper.csl && <p className="muted">当前来源的引用题录尚未就绪。</p>}
           {paper.pdf_license && paper.pdf_is_unmodified && <p className="muted">
             原文 PDF 保留来源署名，字节未经修改。许可：<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>。
           </p>}
@@ -670,7 +683,10 @@ function Detail() {
               <p>{citation}</p>
               {paper.citation_status === "incomplete_metadata" && (
                 <small>
-                  源字段不全：引用仅包含已有字段，请按学校要求核对。
+                  源字段不全：引用保留已有题录{paper.citation_missing_fields?.length ? `；缺少 ${paper.citation_missing_fields.map(field => ({
+                    publication_type: "文献类型", title: "题名", author: "作者", authors: "作者", issued: "发表时间", year: "发表年份",
+                    DOI: "DOI", URL: "来源链接", "container-title": "期刊或会议名称", volume: "卷", issue: "期", page: "页码", publisher: "出版者",
+                  } as Record<string, string>)[field] || field).join("、")}` : ""}。
                 </small>
               )}
               <button
@@ -727,13 +743,18 @@ function Detail() {
 }
 type Task = {
   kind?: string;
+  project_id?: string;
+  command_seq: number;
   brief?: {
     question?: string;
+    reference_turn_seq?: number;
     requested_direction?: string;
     selected_skills?: SkillPin[];
     selected_papers?: Array<PaperRef | { kind: "material_file"; id: string }>;
     research_brief?: { id: string; revision: number; sha256: string };
-    research_action?: "plan" | "suggest" | "extract";
+    research_action?: ResearchStartAction | "suggest" | "extract" | "review" | "revise";
+    review_source?: ReviewSource;
+    revision_request?: RevisionRequest;
   };
   known_ncny?: number;
   reserved_ncny?: number;
@@ -758,7 +779,7 @@ type Task = {
   runtime_availability?: string;
   dispatch_runtime_availability?: string;
   cancellation_requested?: boolean;
-  profile?: { model_calls?: number; tool_calls?: number; active_seconds?: number; cash_ncny?: number };
+  profile?: { profile_id?: string; model_calls?: number; tool_calls?: number; active_seconds?: number; cash_ncny?: number };
   input_tokens?: number;
   output_tokens?: number;
   model_calls?: number;
@@ -773,11 +794,15 @@ function TaskComposer({
   resumeTaskId,
   onTaskChange,
   onBriefSaved,
+  embeddedReview = false,
+  onTaskSnapshot,
 }: {
   initial?: string;
   resumeTaskId?: string;
   onTaskChange?: (taskId: string | undefined) => void;
   onBriefSaved?: (value: BriefSnapshot) => void;
+  embeddedReview?: boolean;
+  onTaskSnapshot?: (value: Task | null) => void;
   selected?: Array<PaperRef | { kind: "material_file"; id: string }>;
   kind?: string;
   direction?: string;
@@ -789,6 +814,9 @@ function TaskComposer({
   const [selectedDirection, setSelectedDirection] = useState(direction);
   const [kind, setKind] = useState(initialKind);
   const [task, setTask] = useState<Task | null>(null);
+  const fixedReview = embeddedReview || ["review", "revise"].includes(task?.brief?.research_action || "");
+  useEffect(() => { onTaskSnapshot?.(task); }, [task, onTaskSnapshot]);
+  const [referenceTurn, setReferenceTurn] = useState<{ taskId: string; commandSeq: number } | null>(null);
   const [events, setEvents] = useState<any[]>([]);
   const [error, setError] = useState<unknown>();
   const [sending, setSending] = useState(false);
@@ -799,6 +827,9 @@ function TaskComposer({
     null,
   );
   const [eventHasMore, setEventHasMore] = useState(false);
+  const selectedReferenceSeq = referenceTurn?.taskId === task?.id ? referenceTurn?.commandSeq : undefined;
+  const supportsTurnReferences = ["qa-v6", "qa-v7", "qa-v8", "qa-v9", "stance-v3", "workset-v7"].includes(task?.profile?.profile_id || "");
+  useEffect(() => setReferenceTurn(null), [task?.id]);
   function reportTaskError(failure: unknown, taskId?: string) {
     if (taskId && eventTaskId.current !== taskId) return;
     setError(failure);
@@ -862,23 +893,39 @@ function TaskComposer({
     return () => { cancelled = true; };
   }, [resumeTaskId]);
   useEffect(() => {
-    if (!task || !["queued", "running"].includes(task.state)) return;
+    if (!task || !["queued", "running", "reconciling"].includes(task.state)) return;
     let cancelled = false;
     let timeout: ReturnType<typeof setTimeout>;
+    const controller = new AbortController();
+    let failures = 0;
+    let pollingFailure: unknown;
     const poll = async () => {
       try {
-        const next = await api<Task>(`/api/agent/tasks/${task.id}`);
-        if (cancelled) return;
+        const next = await api<Task>(`/api/agent/tasks/${task.id}`, undefined, undefined, controller.signal);
+        if (cancelled || eventTaskId.current !== task.id) return;
+        const recoveredFailure = pollingFailure;
+        if (recoveredFailure !== undefined)
+          setError(current => current === recoveredFailure ? undefined : current);
+        pollingFailure = undefined;
+        failures = 0;
         setTask(next);
-        if (["queued", "running"].includes(next.state))
-          timeout = setTimeout(poll, 1200);
+        if (["queued", "running", "reconciling"].includes(next.state))
+          timeout = setTimeout(poll, next.state === "reconciling" ? 3000 : 1200);
       } catch (e) {
-        if (!cancelled) reportTaskError(e);
+        if (cancelled || eventTaskId.current !== task.id) return;
+        pollingFailure = e;
+        reportTaskError(e, task.id);
+        if (e instanceof TypeError || (e instanceof APIError
+            && ([408, 429].includes(e.status) || e.status >= 500))) {
+          failures += 1;
+          timeout = setTimeout(poll, Math.min(30000, 3000 * 2 ** Math.min(failures - 1, 4)));
+        }
       }
     };
-    timeout = setTimeout(poll, 300);
+    timeout = setTimeout(poll, task.state === "reconciling" ? 3000 : 300);
     return () => {
       cancelled = true;
+      controller.abort();
       clearTimeout(timeout);
     };
   }, [task?.id, task?.state]);
@@ -907,6 +954,7 @@ function TaskComposer({
     return () => stream.close();
   }, [task?.id, task?.state]);
   const submit = async () => {
+    if (fixedReview) return;
     setError(undefined);
     setSending(true);
     try {
@@ -939,6 +987,7 @@ function TaskComposer({
           expected_revision: task.revision,
           kind: task.state === "waiting_input" ? "resume" : "followup",
           message: question,
+          ...(selectedReferenceSeq !== undefined ? { reference_turn_seq: selectedReferenceSeq } : {}),
           selected_skills: selectedSkills,
           ...(task.kind === "stance"
             ? { requested_direction: selectedDirection }
@@ -992,6 +1041,7 @@ function TaskComposer({
         void loadEventPage(created.id).catch(failure => reportTaskError(failure, created.id));
       }
       setQuestion("");
+      setReferenceTurn(null);
     } catch (e) {
       reportTaskError(e);
     } finally {
@@ -1017,7 +1067,7 @@ function TaskComposer({
                   selected={selectedSkills}
                   onSelect={setSelectedSkills}
                   selectionDisabled={
-                    sending ||
+                    fixedReview || sending ||
                     (!!task &&
                       ["queued", "running", "reconciling"].includes(task.state))
                   }
@@ -1027,15 +1077,21 @@ function TaskComposer({
           </details>
           {task?.kind === "research" && (
             <p className="muted">
-              继续任务会重新读取并同步当前已保存的研究档案；模型调用与费用沿用本任务累计记录。
+              {fixedReview ? "本次稿件任务绑定所选稿件与研究档案版本，原稿与已有评审报告保留。" : "继续任务会重新读取并同步当前已保存的研究档案；模型调用与费用沿用本任务累计记录。"}
             </p>
           )}
-          {!task && <CapabilityStatus kind={kind} />}
+          {!task && !fixedReview && <CapabilityStatus kind={kind} />}
+          {selectedReferenceSeq !== undefined && <section className="notice" aria-label="本轮回答指代">
+            <p>本轮追问将引用提交序号 {selectedReferenceSeq} 的回答；事实依据仍需核对原文。</p>
+            <button disabled={sending} onClick={() => setReferenceTurn(null)}>取消本轮引用</button>
+          </section>}
           <label className="sr-only" htmlFor={questionId}>
             研究问题或追问
           </label>
           <textarea
             id={questionId}
+            disabled={fixedReview}
+            hidden={fixedReview}
             maxLength={8000}
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
@@ -1063,7 +1119,7 @@ function TaskComposer({
                 </select>
               </label>
             )}
-            {!task && initialKind !== "stance" && (
+            {!task && !fixedReview && initialKind !== "stance" && (
               <select
                 aria-label="AI任务类型"
                 value={kind}
@@ -1076,8 +1132,9 @@ function TaskComposer({
             )}
             <button
               className="primary"
+              hidden={fixedReview}
               disabled={
-                sending ||
+                fixedReview || sending || (!!resumeTaskId && !task) ||
                 !question.trim() ||
                 (!!task && !canContinueTask(task)) ||
                 (!task &&
@@ -1089,7 +1146,7 @@ function TaskComposer({
             >
               {sending ? "提交中…" : task ? "继续本任务" : "发起任务"} ↗
             </button>
-            {task && (
+            {task && !fixedReview && (
               <button
                 disabled={sending || ["queued", "running"].includes(task.state)}
                 onClick={() => {
@@ -1134,48 +1191,29 @@ function TaskComposer({
       )}
       {!!error && <Notice error={error} />}{" "}
       {task && (
-        <section className="task-output" aria-live="polite">
-          <div className="task-state">
+        <section className="task-output">
+          <div className="task-state" aria-live="polite">
             <span className={task.state === "running" ? "pulse" : ""}>●</span>{" "}
             {taskStateText(task.state)} · 任务 {task.id.slice(0, 8)}
           </div>
           <TaskConversation taskId={task.id} revision={task.revision} state={task.state}
+            selectedReferenceSeq={selectedReferenceSeq} referenceDisabled={sending || !canContinueTask(task)}
+            onReferenceSelect={supportsTurnReferences ? commandSeq => {
+              setReferenceTurn({ taskId: task.id, commandSeq });
+              document.getElementById(questionId)?.focus();
+            } : undefined}
             onUnavailable={failure => reportTaskError(failure, task.id)} />
           <h3>当前轮次</h3>
           {task.brief?.question && <p className="conversation-question">{task.brief.question}</p>}
-          {task.state === "partial" && <p className="notice" role="status">本轮仅完成部分内容。已确认的回答与尚未覆盖的问题会分别列出，可在本任务内继续补充。</p>}
+          {task.brief?.reference_turn_seq !== undefined && <p className="muted">
+            本轮指代提交序号 {task.brief.reference_turn_seq} 的回答。
+          </p>}
+          {task.state === "partial" && <p className="notice" role="status">{fixedReview
+            ? "本轮稿件任务尚未完成。原稿和已有评审报告保留，执行情况见下方诊断。"
+            : "本轮仅完成部分内容。已确认的回答与尚未覆盖的问题会分别列出，可在本任务内继续补充。"}</p>}
           {task.state === "reconciling" && <p className="notice" role="status">存在尚未确认结果的调用，正在核对；费用预留与执行记录保留，当前不能继续追问。</p>}
-          <details open={["queued", "running"].includes(task.state)}>
-            <summary>执行过程 · {events.length} 条事件</summary>
-            <ol className="events">
-              {events.map((event, i) => (
-                <li key={event.seq || i}>
-                  <strong>{progressText(event)}</strong>
-                  <details>
-                    <summary>执行记录</summary>
-                    <pre>
-                      {JSON.stringify(
-                        event.payload || event.data || event,
-                        null,
-                        2,
-                      )}
-                    </pre>
-                  </details>
-                </li>
-              ))}
-            </ol>
-            {eventHasMore && (
-              <button
-                onClick={() =>
-                  loadEventPage(task.id, historyCursor.current).catch(
-                    failure => reportTaskError(failure, task.id),
-                  )
-                }
-              >
-                读取后续执行记录
-              </button>
-            )}
-          </details>
+          <TaskProgress events={events} task={task} hasMore={eventHasMore}
+            onMore={() => void loadEventPage(task.id, historyCursor.current).catch(failure => reportTaskError(failure, task.id))} />
           {task.runtime_availability === "pinned_legacy_runtime_required" && (
             <p className="notice">
               该历史任务绑定旧版执行环境，当前运行器不会自动接管。原费用与执行记录仍保留。
@@ -1203,10 +1241,20 @@ function TaskComposer({
               evidence={ref => <EvidenceLink taskId={task.id} refId={ref} />}
               onSaved={value => { onBriefSaved?.(value); api<Task>(`/api/agent/tasks/${task.id}`).then(setTask).catch(reportTaskError); }} />
           )}
-          {task.result && <TaskAnswer taskId={task.id} result={task.result} />}
+          {task.result && !task.result.school_document && (task.result_availability === "available" && task.result.review_report
+            ? <OptionalResearchRevision key={`${task.id}:${task.command_seq}`} sourceTask={task} onBriefSaved={onBriefSaved} />
+            : <TaskAnswer taskId={task.id} result={task.result} />)}
+          {task.kind === "research" && ["plan", "revise"].includes(task.brief?.research_action || "plan")
+            && <ResearchVersions key={`${task.id}:${task.command_seq}`} taskId={task.id}
+              initialCommandSeq={task.result_availability === "available" && task.result?.status === "school_document_ready" ? task.command_seq : undefined}
+              renderVersion={version => <>
+                <TaskAnswer key={`${version.source_binding.command_seq}:${version.source_binding.document_sha256}`} taskId={task.id} result={version.result} sourceBinding={version.source_binding} />
+                <OptionalResearchReview key={`review:${version.source_binding.command_seq}:${version.source_binding.document_sha256}`}
+                  sourceTask={task} sourceBinding={version.source_binding} sourceBrief={version.source_brief} onBriefSaved={onBriefSaved} />
+              </>} />}
           {task.kind === "stance" && !task.result && task.coverage_report && <TaskCoverage report={task.coverage_report} />}
           {task.kind === "research" && !task.result?.school_document && task.research_progress && <ResearchProgress report={task.research_progress} />}
-          <div className="usage">
+          <details><summary>用量与预算详情</summary><div className="usage">
             模型 {task.model_calls ?? "—"}{task.profile?.model_calls ? ` / ${task.profile.model_calls}` : ""} 次 · 工具 {task.tool_calls ?? "—"}{task.profile?.tool_calls ? ` / ${task.profile.tool_calls}` : ""} 次
             · 已知输入 {task.input_tokens ?? "—"} / 输出{" "}
             {task.output_tokens ?? "—"} tokens · 活跃{" "}
@@ -1231,10 +1279,155 @@ function TaskComposer({
               {task.dispatch_timing.human_waiting_input_excluded ? "，等待用户补充的停留不计入。" : ""}
             </div>
           )}
+          </details>
         </section>
       )}
     </div>
   );
+}
+function OptionalResearchReview({ sourceTask, sourceBinding, sourceBrief, onBriefSaved }: {
+  sourceTask: Task; sourceBinding?: ReviewSource; sourceBrief?: object; onBriefSaved?: (value: BriefSnapshot) => void;
+}) {
+  const [profile, setProfile] = useState<ProfileCapabilities["research_review_profile"]>();
+  const [capabilityReload, setCapabilityReload] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const [childId, setChildId] = useState<string>();
+  const [child, setChild] = useState<Task | null>(null);
+  const [previousChildId, setPreviousChildId] = useState<string>();
+  const request = useRef<AbortController | null>(null);
+  const ownerId = current?.owner_id;
+  const sourceCommandSeq = sourceBinding?.command_seq ?? sourceTask.command_seq;
+  const scope = `${ownerId}:${sourceTask.id}:${sourceCommandSeq}:${sourceBinding?.document_sha256 || "current"}`;
+  const identity = useRef(scope);
+  identity.current = scope;
+  useEffect(() => {
+    const controller = new AbortController();
+    setProfile(undefined);
+    readTaskCapabilities(controller.signal)
+      .then(value => { if (!controller.signal.aborted) setProfile(value.research_review_profile || null); })
+      .catch(failure => { if (!controller.signal.aborted) setError(failure); });
+    return () => { controller.abort(); request.current?.abort(); };
+  }, [scope, capabilityReload]);
+
+  async function start(retryAfterTaskId?: string) {
+    const fixedBrief = sourceBinding ? sourceBrief : sourceTask.brief;
+    if (!current?.authenticated || !ownerId || !sourceTask.project_id || !fixedBrief || busy) return;
+    if (retryAfterTaskId && (!child || child.id !== retryAfterTaskId || !canRestartResearchReview(child))) return;
+    const controller = new AbortController();
+    request.current?.abort(); request.current = controller;
+    setBusy(true); setError(undefined);
+    try {
+      const capability = (await readTaskCapabilities(controller.signal)).research_review_profile;
+      if (!capability) throw new Error("当前尚未开放稿件评审，原稿仍可查看或导出。");
+      const source = await api<ReviewSource>(
+        `/api/agent/tasks/${encodeURIComponent(sourceTask.id)}/research-source?command_seq=${sourceCommandSeq}`,
+        undefined, undefined, controller.signal,
+      );
+      if (source.source_task_id !== sourceTask.id || source.command_seq !== sourceCommandSeq
+          || (sourceBinding && !sameReviewSource(source, sourceBinding))
+          || typeof source.source_command_id !== "string" || !source.source_command_id
+          || ![source.command_seq, source.event_seq, source.task_revision].every(value => Number.isSafeInteger(value) && value > 0)
+          || !/^[a-f0-9]{64}$/.test(source.document_sha256) || !/^[a-f0-9]{64}$/.test(source.context_sha256))
+        throw new Error("稿件版本信息不完整，请重新读取原任务后再发起评审。");
+      const body = {
+        project_id: sourceTask.project_id, profile_id: capability.profile_id, kind: "research",
+        brief: { ...sourceBriefFields(fixedBrief), kind: "research", research_action: "review", review_source: source,
+          question: "对所选版本进行文献、方法和可行性评审；分别报告问题、分歧与待补信息，保留原稿。" },
+      };
+      const operationId = await reviewOperationId(ownerId, body, retryAfterTaskId);
+      if (controller.signal.aborted || identity.current !== scope) return;
+      const created = await api<Task>("/api/agent/tasks", { ...body, operation_id: operationId }, undefined, controller.signal);
+      if (controller.signal.aborted || identity.current !== scope) return;
+      setPreviousChildId(retryAfterTaskId); setChild(null); setChildId(created.id); setProfile(capability);
+    } catch (failure) {
+      if (!controller.signal.aborted && identity.current === scope) setError(failure);
+    } finally {
+      if (!controller.signal.aborted && identity.current === scope) setBusy(false);
+    }
+  }
+  const canRestart = child !== null && canRestartResearchReview(child);
+  return <section className="card" aria-label="可选的多智能体稿件评审">
+    <h3>多 Agent 评审（可选）</h3>
+    <p className="muted">原稿可直接查看和导出。也可以对当前版本分别进行文献依据、实验方法、可行性与结构评审，查看分歧和待补信息。</p>
+    {!childId && <button type="button" disabled={!profile || busy} onClick={() => void start()}>
+      {busy ? "正在提交评审…" : "多 Agent 评审"}
+    </button>}
+    {profile === null && <p className="muted">当前评审服务尚未开放。</p>}
+    {!!error && <><Notice error={error} />
+      {!profile && <button type="button" disabled={busy} onClick={() => { setError(undefined); setCapabilityReload(value => value + 1); }}>重新读取评审服务</button>}
+    </>}
+    {previousChildId && <p><a href={`/workspace?task=${previousChildId}`}>查看上次评审记录</a></p>}
+    {childId && <TaskComposer key={childId} resumeTaskId={childId} kind="research" embeddedReview
+      onTaskSnapshot={setChild} onBriefSaved={onBriefSaved} />}
+    {canRestart && child && <button type="button" disabled={busy} onClick={() => void start(child.id)}>新建评审任务</button>}
+  </section>;
+}
+function OptionalResearchRevision({ sourceTask, onBriefSaved }: {
+  sourceTask: Task; onBriefSaved?: (value: BriefSnapshot) => void;
+}) {
+  const [profile, setProfile] = useState<ProfileCapabilities["research_revision_profile"]>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const [childId, setChildId] = useState<string>();
+  const [child, setChild] = useState<Task | null>(null);
+  const [submittedKeys, setSubmittedKeys] = useState<string[]>([]);
+  const [previousChildId, setPreviousChildId] = useState<string>();
+  const request = useRef<AbortController | null>(null);
+  const ownerId = current?.owner_id;
+  const scope = `${ownerId}:${sourceTask.id}:${sourceTask.command_seq}`;
+  const identity = useRef(scope); identity.current = scope;
+  const report = sourceTask.result?.review_report;
+  useEffect(() => {
+    const controller = new AbortController();
+    readTaskCapabilities(controller.signal)
+      .then(value => { if (!controller.signal.aborted) setProfile(value.research_revision_profile || null); })
+      .catch(failure => { if (!controller.signal.aborted) setError(failure); });
+    return () => { controller.abort(); request.current?.abort(); };
+  }, [scope]);
+  async function start(keys: string[], retryAfterTaskId?: string) {
+    if (!current?.authenticated || !ownerId || !sourceTask.project_id || !sourceTask.brief?.review_source || !report || busy) return;
+    if (childId && (!retryAfterTaskId || !child || child.id !== retryAfterTaskId || !canRestartResearchReview(child))) return;
+    const findings = report.role_reports.flatMap(role => role.findings.map(finding => ({ key: `${role.role}:${finding.id}`, section_ids: finding.section_ids })));
+    const selection = revisionSelection(findings, keys);
+    if (!selection.valid) { setError(new Error(selection.reason)); return; }
+    const controller = new AbortController(); request.current?.abort(); request.current = controller;
+    setBusy(true); setError(undefined);
+    try {
+      const capability = (await readTaskCapabilities(controller.signal)).research_revision_profile;
+      if (!capability) throw new Error("当前尚未开放定向修订，原稿和评审报告保留。");
+      const binding = await api<ReviewReportSource>(`/api/agent/tasks/${encodeURIComponent(sourceTask.id)}/review-source?command_seq=${sourceTask.command_seq}`, undefined, undefined, controller.signal);
+      if (binding.task_id !== sourceTask.id || binding.command_seq !== sourceTask.command_seq
+          || ![binding.command_seq, binding.event_seq, binding.task_revision].every(value => Number.isSafeInteger(value) && value > 0)
+          || !/^[a-f0-9]{64}$/.test(binding.report_sha256) || !/^[a-f0-9]{64}$/.test(binding.context_sha256))
+        throw new Error("评审报告版本无法对应，请重新读取报告。");
+      const body = {
+        project_id: sourceTask.project_id, profile_id: capability.profile_id, kind: "research",
+        brief: { ...sourceBriefFields(sourceTask.brief), kind: "research", research_action: "revise",
+          review_source: sourceTask.brief.review_source,
+          revision_request: { report: binding, finding_keys: [...keys].sort() },
+          question: "按明确采纳的评审意见定向修订所选章节；保留未选章节、原稿和其他评审意见。" },
+      };
+      const operationId = await reviewOperationId(ownerId, body, retryAfterTaskId);
+      if (controller.signal.aborted || identity.current !== scope) return;
+      const created = await api<Task>("/api/agent/tasks", { ...body, operation_id: operationId }, undefined, controller.signal);
+      if (controller.signal.aborted || identity.current !== scope) return;
+      setSubmittedKeys([...keys]); setPreviousChildId(retryAfterTaskId); setChild(null); setChildId(created.id); setProfile(capability);
+    } catch (failure) { if (!controller.signal.aborted && identity.current === scope) setError(failure); }
+    finally { if (!controller.signal.aborted && identity.current === scope) setBusy(false); }
+  }
+  return <>
+    {sourceTask.result && <TaskAnswer taskId={sourceTask.id} result={sourceTask.result}
+      onRevisionRequest={profile ? keys => start(keys) : undefined} revisionDisabled={busy || !!childId} />}
+    {profile === null && <p className="muted">当前定向修订服务尚未开放，评审报告可继续查看。</p>}
+    {!!error && <Notice error={error} />}
+    {previousChildId && <p><a href={`/workspace?task=${previousChildId}`}>查看上次修订记录</a></p>}
+    {childId && <section className="card" aria-label="独立的定向修订任务">
+      <h3>定向修订任务</h3>
+      <TaskComposer key={childId} resumeTaskId={childId} kind="research" embeddedReview onTaskSnapshot={setChild} onBriefSaved={onBriefSaved} />
+      {child && canRestartResearchReview(child) && <button type="button" disabled={busy} onClick={() => void start(submittedKeys, child.id)}>新建修订任务</button>}
+    </section>}
+  </>;
 }
 function TaskHistory() {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -1260,16 +1453,83 @@ function TaskHistory() {
     </details>
   );
 }
+type MaterialQuerySelection = { kind: "docling_title_fragment" | "user_excerpt"; fragment_id: string; span_start: number; span_end: number };
+type MaterialSimilarity = {
+  source: Record<string, unknown>;
+  projection: { query: string; origin: string; selection: MaterialQuerySelection | null } | null;
+  reason: string; page: SearchPage | null;
+};
 function MaterialDetail() {
   const { id = "" } = useParams();
   const [file, setFile] = useState<any>();
   const [error, setError] = useState<unknown>();
   const [readiness, setReadiness] = useState<any>();
+  const [downloadNotice, setDownloadNotice] = useState("");
+  const downloadOperation = useRef<string | null>(null);
   const [parts, setParts] = useState<any[]>([]);
   const [after, setAfter] = useState<number | null>(0);
   const [params, setParams] = useSearchParams();
   const consentOperation = useRef<{ signature: string; id: string } | null>(null);
   const [consentBusy, setConsentBusy] = useState(false);
+  const [similarity, setSimilarity] = useState<MaterialSimilarity | null>(null);
+  const [similarQuery, setSimilarQuery] = useState("");
+  const [similarSelection, setSimilarSelection] = useState<MaterialQuerySelection | null>(null);
+  const [similarCatalog, setSimilarCatalog] = useState("application_papers");
+  const [similarBusy, setSimilarBusy] = useState(false);
+  const [similarError, setSimilarError] = useState<unknown>();
+  const [excerpt, setExcerpt] = useState<{ query: string; selection: MaterialQuerySelection } | null>(null);
+  const [similarHistory, setSimilarHistory] = useState<{ snapshotId: string; operationId: string } | null>(null);
+  const similarityRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => similarityRequest.current?.abort(), []);
+  useEffect(() => {
+    if (!file || file.outbound_policy === "selected_cloud_processing_allowed") return;
+    similarityRequest.current?.abort(); setSimilarity(null); setSimilarQuery(""); setSimilarSelection(null);
+    setExcerpt(null); setSimilarBusy(false); setSimilarHistory(null);
+  }, [file?.outbound_policy]);
+  async function saveSimilarHistory(value: { snapshotId: string; operationId: string }, signal?: AbortSignal) {
+    await api("/api/v3/workstation/search-activities", { operation_id: value.operationId, snapshot_id: value.snapshotId }, undefined, signal);
+    if (!signal?.aborted) setSimilarHistory(current => current?.snapshotId === value.snapshotId ? null : current);
+  }
+  async function findSimilar(action: "prepare" | "search") {
+    similarityRequest.current?.abort();
+    const controller = new AbortController(); similarityRequest.current = controller;
+    setSimilarBusy(true); setSimilarError(undefined); setSimilarHistory(null);
+    try {
+      const value = await api<MaterialSimilarity>(`/api/v3/materials/${id}/similar`, action === "prepare" ? { action } : {
+        action, query: similarQuery, selection: similarSelection, expected_source: similarity!.source, catalog: similarCatalog,
+      }, undefined, controller.signal);
+      if (controller.signal.aborted) return;
+      setSimilarity(value);
+      if (action === "prepare") {
+        setSimilarQuery(value.projection?.query || ""); setSimilarSelection(value.projection?.selection || null); setExcerpt(null);
+      } else if (value.page) {
+        const history = { snapshotId: value.page.snapshot_id, operationId: crypto.randomUUID() };
+        setSimilarHistory(history);
+        try { await saveSimilarHistory(history, controller.signal); }
+        catch (failure) { if (!controller.signal.aborted) setSimilarError(failure); }
+      }
+    } catch (failure) {
+      if (!controller.signal.aborted) {
+        if (failure instanceof APIError && [401, 403, 404].includes(failure.status)) {
+          setSimilarity(null); setSimilarQuery(""); setSimilarSelection(null); setExcerpt(null);
+        }
+        setSimilarError(failure);
+      }
+    } finally { if (!controller.signal.aborted) setSimilarBusy(false); }
+  }
+  async function moreSimilar() {
+    const page = similarity?.page;
+    if (!page?.next_cursor) return;
+    similarityRequest.current?.abort();
+    const controller = new AbortController(); similarityRequest.current = controller;
+    setSimilarBusy(true); setSimilarError(undefined);
+    try {
+      const next = await api<SearchPage>(`/api/v3/search/snapshots/${page.snapshot_id}?cursor=${encodeURIComponent(page.next_cursor)}`,
+        undefined, undefined, controller.signal);
+      if (!controller.signal.aborted) setSimilarity(current => current?.page?.snapshot_id === page.snapshot_id ? { ...current, page: next } : current);
+    } catch (failure) { if (!controller.signal.aborted) setSimilarError(failure); }
+    finally { if (!controller.signal.aborted) setSimilarBusy(false); }
+  }
   const load = async () => {
     try {
       const value = await api<any>(`/api/v3/materials/${id}`);
@@ -1340,10 +1600,19 @@ function MaterialDetail() {
               href={`/api/v2/files/${id}/content`}
               target="_blank"
               rel="noreferrer"
+              onClick={() => {
+                downloadOperation.current ||= crypto.randomUUID();
+                const operationId = downloadOperation.current;
+                void api("/api/v3/workstation/activity", { operation_id: operationId,
+                  kind: "download_requested", target_kind: "file", target_id: id })
+                  .then(() => { if (downloadOperation.current === operationId) downloadOperation.current = null; setDownloadNotice("下载请求已记入个人历史。"); })
+                  .catch(setError);
+              }}
             >
               原始文件 / 下载 ↗
             </a>
           )}
+          {downloadNotice && <p className="muted" role="status">{downloadNotice}</p>}
           {file.can_preview && file.media_type === "application/pdf" && (
             <PDF url={`/api/v2/files/${id}/content`} />
           )}{" "}
@@ -1366,6 +1635,55 @@ function MaterialDetail() {
               材料尚未解析完成。状态会自动更新；解析失败不会作为可问答成功。
             </p>
           )}
+          <section className="card" aria-label="用上传材料寻找相关论文">
+            <h2>寻找相关论文</h2>
+            <p className="muted">先核对解析标题或选择原文片段，也可填写研究主题；查询会显示后再提交到学术索引。</p>
+            {file.outbound_policy !== "selected_cloud_processing_allowed" && <p>请先在下方允许这份材料的模型 API 处理，再使用材料内容检索。</p>}
+            <button disabled={similarBusy || !["ready", "partial"].includes(file.status) || file.outbound_policy !== "selected_cloud_processing_allowed"}
+              onClick={() => void findSimilar("prepare")}>{similarity ? "重新准备查询" : "读取标题并准备查询"}</button>
+            {similarity && <>
+              {!similarity.projection && <p className="notice">没有唯一、完整且适合检索的解析标题。请填写主题，或展开原文选择片段；系统没有截取全文代替查询。</p>}
+              <label>确认检索内容（可编辑）<textarea rows={3} maxLength={2000} value={similarQuery} disabled={similarBusy}
+                onChange={event => { setSimilarQuery(event.target.value); setSimilarity(current => current ? { ...current, page: null } : current); }} /></label>
+              <label>检索语料<select value={similarCatalog} disabled={similarBusy} onChange={event => {
+                setSimilarCatalog(event.target.value); setSimilarity(current => current ? { ...current, page: null } : current);
+              }}>
+                <option value="application_papers">已核全文应用论文</option><option value="standard_metadata">标准题名与摘要</option>
+              </select></label>
+              <details><summary>从已解析原文选择查询</summary>
+                <button disabled={similarBusy || after === null} onClick={() => void more()}>{parts.length ? "读取后续片段" : "读取可选原文片段"}</button>
+                {parts.map(part => <label key={part.fragment_id}>原文片段 {part.ordinal}
+                  <textarea readOnly rows={3} value={part.source_text} onSelect={event => {
+                    const input = event.currentTarget, text = input.value.slice(input.selectionStart, input.selectionEnd);
+                    const start = Array.from(input.value.slice(0, input.selectionStart)).length, length = Array.from(text).length;
+                    setExcerpt(length > 0 && length <= 2000 ? { query: text, selection: { kind: "user_excerpt",
+                      fragment_id: part.fragment_id, span_start: start, span_end: start + length } } : null);
+                  }} />
+                </label>)}
+                <p className="muted">在原文中选中不超过2000个字符，再使用选段；修改查询后会记录为用户改写。</p>
+                <button disabled={similarBusy || !excerpt} onClick={() => {
+                  if (!excerpt) return; setSimilarQuery(excerpt.query); setSimilarSelection(excerpt.selection);
+                  setSimilarity(current => current ? { ...current, page: null } : current);
+                }}>使用所选原文作为查询</button>
+              </details>
+              <button className="primary" disabled={similarBusy || !similarQuery.trim()} onClick={() => void findSimilar("search")}>确认并搜索相关论文</button>
+            </>}
+            {similarBusy && <p role="status">正在核对来源或检索论文…</p>}
+            {!!similarError && <p className="notice" role="alert">{similarError instanceof APIError
+              && ["material_similarity_source_changed", "material_similarity_selection_changed"].includes(similarError.code)
+              ? "材料版本或选段已变化，请重新准备查询后再搜索。" : errorText(similarError)}</p>}
+            {similarHistory && <p className="muted">本次检索历史尚未确认保存。<button disabled={similarBusy}
+              onClick={() => saveSimilarHistory(similarHistory).catch(setSimilarError)}>重试保存历史</button></p>}
+            {similarity?.page && <section aria-label="相关论文检索结果">
+              <p>本次查询：{similarity.page.query} · {({ docling_title_fragment: "解析标题片段", user_excerpt: "所选原文", edited_user_query: "用户改写查询", user_query: "用户输入主题" } as Record<string,string>)[similarity.projection?.origin || ""]}</p>
+              {!similarity.page.results.length && <p>当前语料与查询下没有匹配论文，可以调整检索内容。</p>}
+              {similarity.page.results.map(hit => <article className="result" key={`${hit.paper.paper.kind}:${hit.paper.paper.id}`}>
+                <h3><Link to={paperPath(hit.paper.paper)}>{hit.paper.title || "来源未提供标题"}</Link></h3>
+                <p className="muted">{hit.paper.authors?.join("、")} {hit.paper.year}</p><SearchSnippet text={hit.snippet} />
+              </article>)}
+              {similarity.page.next_cursor && <button disabled={similarBusy} onClick={() => void moreSimilar()}>后续相关论文</button>}
+            </section>}
+          </section>
           <section className="card">
             <h2>与材料对话</h2>
             <p className="muted">
@@ -1437,7 +1755,7 @@ function Workspace() {
   };
   async function launchResearch(
     input: PlanningInput,
-    action: "plan" | "suggest" | "extract",
+    action: ResearchStartAction | "suggest" | "extract",
     fields: BriefField[] = [],
   ) {
     if (!current?.authenticated || !current.project_id)
@@ -1450,7 +1768,9 @@ function Workspace() {
     const question =
       action === "plan"
         ? "根据当前已确认研究档案与文献证据生成上交研究计划书，未执行的实验必须写为拟议，未知信息如实标明。"
-        : action === "extract"
+        : action === "experiment"
+          ? "根据已保存研究档案与获准文献证据辅助实验设计，给出方法、对照、指标、评估步骤、资源条件与风险；未知条件如实保留，未执行实验写为拟议。"
+          : action === "extract"
           ? "逐窗读取关联草稿，提取指定研究字段的候选信息、不同说法和缺项，不得自动确认事实。"
           : "针对指定研究字段提出有明确待确认条件的建议，不得当作已确认事实。";
     let task: Task;
@@ -1508,9 +1828,10 @@ function Workspace() {
           selected_papers: input.selected_sources,
           research_draft_files: input.draft_source_ids || [],
           research_brief: reference,
+          research_action: action,
           selected_skills: researchSkills,
-          ...(action === "suggest" ? { research_action: action, research_help_fields: fields }
-            : action === "extract" ? { research_action: action, research_extract_fields: fields } : {}),
+          ...(action === "suggest" ? { research_help_fields: fields }
+            : action === "extract" ? { research_extract_fields: fields } : {}),
         },
       };
       task = await api<Task>("/api/agent/tasks", {
@@ -1650,10 +1971,10 @@ function Workspace() {
               draft_source_ids: saved.brief.draft_source_ids, research_status: "proposed_not_executed", school_format_ready: false
             }, "extract", request.fields.length ? request.fields.slice(0,4) : ["topic", "purpose", "methods", "resources"]);
           }}
-          onResearchStart={async (input) => {
+          onResearchStart={async (input, action = "plan") => {
             setError(undefined);
             try {
-              await launchResearch(input, "plan");
+              await launchResearch(input, action);
             } catch (e) {
               setError(e);
               throw e;

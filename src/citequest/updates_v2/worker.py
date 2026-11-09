@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from filelock import Timeout, WindowsFileLock
+from filelock import Timeout
 from sqlalchemy import select
 
 from citequest.updates_v2.context import WindowFetchContext
@@ -23,14 +23,19 @@ from sqlalchemy import func
 from citequest.v2.domain import Actor, DomainError
 from citequest.v2.storage import StoredBlob
 from citequest.v2.storage_config import app_storage
+from .locks import LINUX_PROFILE, WINDOWS_PROFILE, native_lock
 
 
 class UpdateWorker:
-    def __init__(self, factory, actor: Actor, fetcher: SourceFetcher, runtime: Path, *, managed_scope_factory=None) -> None:
+    def __init__(self, factory, actor: Actor, fetcher: SourceFetcher, runtime: Path, *, managed_scope_factory=None,
+                 source_gate_profile: str = WINDOWS_PROFILE) -> None:
         self.factory, self.actor, self.fetcher = factory, actor, fetcher
         self.runtime = runtime.resolve()
         self.store = app_storage().cas()
         self.managed_scope_factory = managed_scope_factory
+        self.source_gate_profile = source_gate_profile
+        self.stop_requested = lambda: False
+        self.running = False
         (self.runtime / "window-locks").mkdir(parents=True, exist_ok=True)
         (self.runtime / "receipts").mkdir(parents=True, exist_ok=True)
 
@@ -41,7 +46,14 @@ class UpdateWorker:
         row = self.service(db).window(window_id)
         config = WindowInput.model_validate_json(json.dumps({**{k: v for k, v in row.config.items() if k in WindowInput.model_fields}, "client_operation_id": str(UUID(int=0))}))
         pages = list(db.scalars(select(m.UpdatePage).where(m.UpdatePage.window_id == window_id).order_by(m.UpdatePage.sequence)))
-        if config.source_namespace == "arxiv":
+        if config.protocol_profile == "oai-fixed-window/1":
+            from .oai_cursor import next_request
+            request, value = next_request(config, row.cursor, datetime.now(UTC))
+            row.cursor = {**row.cursor, "oai": value}
+            db.flush()
+            if request is not None:
+                return request, row.cursor
+        elif config.source_namespace == "arxiv":
             discovery = [p for p in pages if p.phase == "atom_page"]
             tail = discovery[-1].parsed["records"] if discovery else []
             crossed = bool(discovery) and (len(tail) < config.page_size or any(timestamp(r["updated"]) < config.lower_bound for r in tail))
@@ -63,13 +75,16 @@ class UpdateWorker:
         return {"window_id": str(window_id), "state": "partial", "error": code, "publication_eligible": False}
 
     async def run(self, window_id: UUID) -> dict:
-        lock = WindowsFileLock(str(self.runtime / "window-locks" / (str(window_id) + ".lock")), timeout=0, thread_local=False, is_singleton=False)
+        lock = native_lock(self.runtime / "window-locks" / (str(window_id) + ".lock"), self.source_gate_profile)
         try:
             lock.acquire()
         except Timeout as exc:
             raise DomainError("source_window_worker_busy", 409) from exc
         try:
+            self.running = True
             while True:
+                if self.stop_requested():
+                    return {"window_id": str(window_id), "state": "draining", "publication_eligible": False}
                 with self.factory.begin() as db:
                     service = self.service(db)
                     row = service.window(window_id)
@@ -77,22 +92,31 @@ class UpdateWorker:
                         return {"window_id": str(window_id), "state": row.state, "error": row.error, "publication_eligible": False}
                     if row.state == "observed":
                         return service.seal(window_id)
-                    request, cursor = self._next(db, window_id)
-                    pending = cursor.get("pending_request")
+                    pending = row.cursor.get("pending_request")
                     if pending:
-                        sequence, request = cursor["pending_sequence"], pending
+                        sequence, request = row.cursor["pending_sequence"], pending
                         reserved = None
-                    elif request is None:
-                        return service.seal(window_id)
                     else:
+                        request, cursor = self._next(db, window_id)
+                        if request is None:
+                            return service.seal(window_id)
                         reserved = service.reserve_fetch(window_id, request)
                         sequence = reserved["sequence"]
                     domain = row.security_domain
                 journal = self.runtime / "receipts" / f"{window_id}-{sequence}.json"
                 if reserved is None:
-                    if not journal.is_file():
+                    if self.source_gate_profile == LINUX_PROFILE:
+                        with self.factory() as db:
+                            receipt = db.get(m.FetchReceipt, (window_id, sequence))
+                            saved = receipt.payload if receipt is not None else None
+                            if receipt is not None:
+                                from .protocols import digest
+                                if digest(saved) != receipt.payload_sha256 or json.loads(receipt.payload_canonical) != saved:
+                                    return self._stop(window_id, "source_durable_receipt_hash_changed")
+                    else:
+                        saved = json.loads(journal.read_text(encoding="utf-8")) if journal.is_file() else None
+                    if saved is None:
                         return self._stop(window_id, "pending_request_without_durable_result_unknown")
-                    saved = json.loads(journal.read_text(encoding="utf-8"))
                 else:
                     context = WindowFetchContext.start(min(30.0, reserved["remaining_seconds"]))
                     context.source_window_id, context.source_sequence = str(window_id), sequence
@@ -104,12 +128,19 @@ class UpdateWorker:
                              "blob": {"security_domain": blob.security_domain, "sha256": blob.sha256, "size_bytes": blob.size_bytes} if blob else None,
                              "response": {"url": result.url, "status": result.status, "content_type": result.content_type,
                                           "complete": result.complete, "headers": result.headers, "error": result.error, "network_receipts": context.receipts}}
-                    temporary = journal.with_suffix(".tmp")
-                    with temporary.open("x", encoding="utf-8") as output:
-                        json.dump(saved, output, ensure_ascii=False, sort_keys=True)
-                        output.flush()
-                        os.fsync(output.fileno())
-                    os.replace(temporary, journal)
+                    if self.source_gate_profile == LINUX_PROFILE:
+                        from .protocols import digest
+                        from citequest.agents_v3.contracts import canonical
+                        with self.factory.begin() as db:
+                            db.add(m.FetchReceipt(window_id=window_id, sequence=sequence, payload=saved,
+                                payload_sha256=digest(saved), payload_canonical=canonical(saved).decode()))
+                    else:
+                        temporary = journal.with_suffix(".tmp")
+                        with temporary.open("x", encoding="utf-8") as output:
+                            json.dump(saved, output, ensure_ascii=False, sort_keys=True)
+                            output.flush()
+                            os.fsync(output.fileno())
+                        os.replace(temporary, journal)
                 if saved["window_id"] != str(window_id) or saved["sequence"] != sequence or saved["request"] != request:
                     return self._stop(window_id, "durable_source_result_reservation_mismatch")
                 with self.factory.begin() as db:
@@ -119,4 +150,5 @@ class UpdateWorker:
         except (DomainError, ValueError) as exc:
             return self._stop(window_id, getattr(exc, "code", type(exc).__name__))
         finally:
+            self.running = False
             lock.release()

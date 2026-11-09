@@ -11,10 +11,19 @@ SCHOOL_NORMAL_CALLS = 14 * 2 + 2
 RESEARCH_OUTPUT_CAP = 2048
 
 
+def is_experiment_task(task: dict) -> bool:
+    return (task.get("kind") == "research" and task["profile"].get("profile_id") == "research-v6"
+        and task["brief"].get("research_action") == "experiment")
+
+
+def school_model_calls(task: dict) -> int:
+    return 0 if is_experiment_task(task) else SCHOOL_NORMAL_CALLS
+
+
 def literature_result_limit(task: dict) -> int:
-    if task["profile"].get("profile_id") != "research-v5":
+    if task["profile"].get("profile_id") not in {"research-v5", "research-v6"}:
         return 2
-    from citequest.research_v3.evidence import reference_selections
+    from citequest.research_v3.selections import reference_selections
     selected = reference_selections(task["brief"])
     return min(8, len(selected)) if selected else 8
 
@@ -37,13 +46,16 @@ def research_v5_capacity(task: dict, questions: int, experiments: int, *,
         raise AgentError("research_v5_capacity_dimensions_invalid")
     normal_models, _ = planning_operations(questions, experiments)
     repair_calls = remaining_revisions * max(questions + 2, 3)
-    models = outline_calls + normal_models + SCHOOL_NORMAL_CALLS + repair_calls
+    school_calls = school_model_calls(task)
+    models = outline_calls + normal_models + school_calls + repair_calls
     result_limit = literature_result_limit(task)
-    tools = questions * (1 + 4 * result_limit)
+    experiment_only = is_experiment_task(task)
+    read_multiplier = 2 if experiment_only else 4
+    tools = questions * (1 + read_multiplier * result_limit)
     output = models * RESEARCH_OUTPUT_CAP
     profile = task["profile"]
     reasons = []
-    from citequest.research_v3.evidence import reference_selections
+    from citequest.research_v3.selections import reference_selections
     selected_count = len(reference_selections(task["brief"]))
     if selected_count > 8:
         reasons.append("research_v5_selected_reference_count_exceeds_explicit_eight_source_capacity")
@@ -52,18 +64,18 @@ def research_v5_capacity(task: dict, questions: int, experiments: int, *,
             reasons.append("research_and_school_remaining_" + key + "_insufficient")
     if profile["per_call_output"] < RESEARCH_OUTPUT_CAP:
         reasons.append("research_and_school_per_call_output_below_2048")
-    return {"protocol": "citequest-research-school-admission/1", "questions": questions,
+    return {"protocol": "citequest-experiment-admission/1" if experiment_only else "citequest-research-school-admission/1", "questions": questions,
         "experiments": experiments, "outline_calls_remaining": outline_calls,
         "evidence_results_per_question": result_limit,
         "selected_reference_documents": selected_count,
         "maximum_unique_evidence_refs": questions * result_limit,
-        "tool_formula": "questions*(1+4*evidence_results_per_question)",
+        "tool_formula": f"questions*(1+{read_multiplier}*evidence_results_per_question)",
         "tool_breakdown": {"search": questions, "initial_reads": questions * result_limit,
             "research_publication_reads": questions * result_limit,
-            "school_initial_and_final_reads": 2 * questions * result_limit,
+            "school_initial_and_final_reads": 0 if experiment_only else 2 * questions * result_limit,
             "revision_additional_reads": 0},
         "source_guard_operations": "existing_fresh_scope_resource_reads_outside_tool_counter; active_deadline_and_receipts_still_apply",
-        "school_normal_model_calls": SCHOOL_NORMAL_CALLS,
+        "school_normal_model_calls": school_calls,
         "shared_revision_credits_remaining": remaining_revisions,
         "shared_revision_model_calls": repair_calls, "required_model_calls": models,
         "required_tool_calls": tools, "reserved_output_tokens": output,
@@ -81,10 +93,11 @@ def reviewed_outline_capacity(task: dict, *, remaining_revisions: int) -> dict:
                 outline_calls=2, remaining_revisions=remaining_revisions)
             if candidate["admitted"]:
                 pairs.append({"research_questions": questions, "experiments": experiments})
-    return {"protocol": "citequest-research-school-admission/1",
+    school_calls = school_model_calls(task)
+    return {"protocol": "citequest-experiment-admission/1" if is_experiment_task(task) else "citequest-research-school-admission/1",
         "admissible_model_tool_and_output_scope_pairs": pairs,
-        "school_normal_model_calls_reserved": SCHOOL_NORMAL_CALLS,
-        "school_normal_output_tokens_reserved": SCHOOL_NORMAL_CALLS * RESEARCH_OUTPUT_CAP,
+        "school_normal_model_calls_reserved": school_calls,
+        "school_normal_output_tokens_reserved": school_calls * RESEARCH_OUTPUT_CAP,
         "evidence_results_per_question": literature_result_limit(task),
         "shared_revision_credits_remaining": remaining_revisions,
         "rule": "Choose the smallest complete decomposition. Proposed design can be formulated; never invent user facts. No pair means capacity limitation, not missing user input.",

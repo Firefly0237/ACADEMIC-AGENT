@@ -39,8 +39,15 @@ def product_agent_router(
         return {"items": rows, "scope": "latest_50_owned_tasks", "limit": 50}
 
     @router.get("/tasks/{task_id}/evidence")
-    def read_evidence(task_id: UUID, actor: PrivateActor, ref_id: str = Query(min_length=1, max_length=300)) -> dict:
+    def read_evidence(task_id: UUID, actor: PrivateActor, ref_id: str = Query(min_length=1, max_length=300),
+                      source_command_seq: int | None = Query(default=None, ge=1)) -> dict:
         try:
+            if source_command_seq is not None:
+                from citequest.agents_v3.research_history import HistoricalResearchReader, source_ref_ids
+                snapshot = HistoricalResearchReader(service, memory, evidence.authorize).read_turn(
+                    actor, task_id, source_command_seq)
+                if ref_id not in source_ref_ids(snapshot.result):
+                    raise AgentError("evidence_not_in_selected_research_version", 403)
             return evidence.read(actor, task_id, ref_id)
         except AgentError as exc:
             raise HTTPException(exc.status, detail={"code": exc.code}) from None
@@ -54,7 +61,8 @@ def product_agent_router(
         last_event_id: str | None = Header(default=None),
     ) -> StreamingResponse:
         try:
-            service.get(actor.owner_id, task_id)  # authorize before sending headers
+            # Keep synchronous database authorization off the ASGI event loop.
+            await run_in_threadpool(service.get, actor.owner_id, task_id)
         except AgentError as exc:
             raise HTTPException(exc.status, detail={"code": exc.code}) from None
         if last_event_id is not None:

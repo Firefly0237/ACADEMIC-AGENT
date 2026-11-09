@@ -17,7 +17,7 @@ from citequest.search_v3.schemas import PaperLocator
 from citequest.v2.domain import Actor
 
 from .contracts import AgentError, CURRENT_GRAPH_VERSIONS, QA_ANCHORED_GRAPH_VERSION, QA_AUDITED_GRAPH_VERSION, QA_DECOMPOSED_GRAPH_VERSION, QA_GROUNDED_GRAPH_VERSION, QA_JSON_REVIEW_GRAPH_VERSION, QA_ONLINE_GRAPH_VERSION, QA_PATCH_GRAPH_VERSION, QA_PRO_GRAPH_VERSION, QA_REFERENCE_CONTEXT_GRAPH_VERSION, QA_SEPARATED_GRAPH_VERSION, QA_STRUCTURED_GRAPH_VERSION, QA_VERIFIED_GRAPH_VERSION, canonical, digest, graph_version_for_kind
-from .product_profiles import FUNCTION_REVIEW_PAIRS, answer_revision_protocol, evidence_navigation_protocol, qa_content_protocol, qa_context_protocol, qa_execution_protocol, require_qa8_protocol, review_api_protocol, review_transport, structured_output_protocol
+from .product_profiles import FUNCTION_REVIEW_PAIRS, answer_revision_protocol, evidence_navigation_protocol, qa_content_protocol, qa_context_protocol, qa_execution_protocol, qa_retrieval_protocol, require_qa8_protocol, retrieval_rerank_protocol, review_api_protocol, review_transport, structured_output_protocol
 
 POLICY = 'task-catalog-snapshot/1'
 SUFFIX = '+task-catalog-snapshot1'
@@ -43,14 +43,27 @@ def graph_version(kind: str, profile_id: str | None, policy: str | None, transpo
                   qa_protocol: str | None = None, review_api: str | None = None,
                   structured_output: str | None = None, answer_revision: str | None = None,
                   qa_context: str | None = None, qa_content: str | None = None,
-                  evidence_navigation: str | None = None) -> str:
+                  evidence_navigation: str | None = None, retrieval_rerank: str | None = None,
+                  rerank_sha256: str | None = None, qa_retrieval: str | None = None) -> str:
     if policy not in {None, POLICY}:
         raise AgentError('unsupported_catalog_scope_policy', 503)
     if qa_content is not None and (qa_content not in {'anchored2', 'online1', 'isolated1'} or (kind, profile_id) != ('qa', 'qa-v9')):
         raise AgentError('task_qa_content_protocol_not_supported', 503)
-    if evidence_navigation is not None and (evidence_navigation != 'laya1'
+    if evidence_navigation is not None and (evidence_navigation not in {'laya1', 'laya2'}
             or (kind, profile_id, qa_content, policy) != ('qa', 'qa-v9', 'isolated1', POLICY)):
         raise AgentError('task_evidence_navigation_not_supported', 503)
+    if qa_retrieval is not None and (qa_retrieval != 'adaptive1'
+            or (kind, profile_id, qa_content, policy) != ('qa', 'qa-v9', 'isolated1', POLICY)):
+        raise AgentError('task_qa_retrieval_protocol_not_supported', 503)
+    if retrieval_rerank is not None or rerank_sha256 is not None:
+        retrieval_rerank_protocol({'kind': kind, 'profile': {'profile_id': profile_id,
+            'review_transport_protocol': transport, 'qa_execution_protocol': qa_protocol,
+            'review_api_protocol': review_api, 'structured_output_protocol': structured_output,
+            'answer_revision_protocol': answer_revision, 'qa_context_protocol': qa_context,
+            'qa_content_protocol': qa_content, 'retrieval_rerank_protocol': retrieval_rerank,
+            'rerank_config_sha256': rerank_sha256}})
+        if policy != POLICY:
+            raise AgentError('rerank_task_catalog_policy_required', 503)
     if profile_id in {'qa-v8', 'qa-v9'}:
         require_qa8_protocol({'kind': kind, 'profile': {'profile_id': profile_id,
             'review_transport_protocol': transport, 'qa_execution_protocol': qa_protocol,
@@ -61,8 +74,10 @@ def graph_version(kind: str, profile_id: str | None, policy: str | None, transpo
         versions = {None: QA_ANCHORED_GRAPH_VERSION, 'anchored2': QA_DECOMPOSED_GRAPH_VERSION,
             'online1': QA_ONLINE_GRAPH_VERSION, 'isolated1': QA_SEPARATED_GRAPH_VERSION}
         version = versions[qa_content]
-        navigation_suffix = '+evidence-laya1' if evidence_navigation is not None else ''
-        return version + '+review-json1+review-chatjson2' + navigation_suffix + SUFFIX
+        navigation_suffix = '+evidence-' + evidence_navigation if evidence_navigation is not None else ''
+        rerank_suffix = '+rerank-tei1' if retrieval_rerank is not None else ''
+        retrieval_suffix = '+retrieval-adaptive1' if qa_retrieval is not None else ''
+        return version + '+review-json1+review-chatjson2' + navigation_suffix + rerank_suffix + retrieval_suffix + SUFFIX
     allowed_transport = (transport == 'function1' and (kind, profile_id) in FUNCTION_REVIEW_PAIRS
         or transport == 'json1' and (kind, profile_id) == ('qa', 'qa-v7'))
     if transport is not None and (not allowed_transport or policy != POLICY):
@@ -133,7 +148,18 @@ def graph_versions(policy: str | None) -> tuple[str, ...]:
         graph_version('qa', 'qa-v9', policy, 'json1', 'grounded3', 'chat-json2', 'chat-json2', 'jsonpatch1', 'references1', 'online1'),
         graph_version('qa', 'qa-v9', policy, 'json1', 'grounded3', 'chat-json2', 'chat-json2', 'jsonpatch1', 'references1', 'isolated1'),
         graph_version('qa', 'qa-v9', policy, 'json1', 'grounded3', 'chat-json2', 'chat-json2', 'jsonpatch1', 'references1', 'isolated1', 'laya1')) if policy == POLICY else ()
-    return old + reviewed + grounded
+    reranked = tuple(graph_version('qa', 'qa-v9', policy, 'json1', 'grounded3', 'chat-json2',
+        'chat-json2', 'jsonpatch1', 'references1', 'isolated1', navigation, 'tei-cross-encoder1', '0' * 64)
+        for navigation in (None, 'laya1')) if policy == POLICY else ()
+    adaptive = tuple(graph_version('qa', 'qa-v9', policy, 'json1', 'grounded3', 'chat-json2',
+        'chat-json2', 'jsonpatch1', 'references1', 'isolated1', navigation, rerank,
+        '0' * 64 if rerank else None, 'adaptive1')
+        for navigation in (None, 'laya1') for rerank in (None, 'tei-cross-encoder1')) if policy == POLICY else ()
+    batched = tuple(graph_version('qa', 'qa-v9', policy, 'json1', 'grounded3', 'chat-json2',
+        'chat-json2', 'jsonpatch1', 'references1', 'isolated1', 'laya2', rerank,
+        '0' * 64 if rerank else None, retrieval)
+        for rerank in (None, 'tei-cross-encoder1') for retrieval in (None, 'adaptive1')) if policy == POLICY else ()
+    return old + reviewed + grounded + reranked + adaptive + batched
 
 
 def require_schema(db, policy: str | None) -> None:
@@ -159,18 +185,20 @@ def require_runtime(task: dict, configured: str | None) -> None:
     answer_revision_protocol(task)
     qa_context_protocol(task)
     qa_content_protocol(task)
+    qa_retrieval_protocol(task)
     evidence_navigation_protocol(task)
+    retrieval_rerank_protocol(task)
 
 
 def current_runtime(task: dict, configured: str | None) -> bool:
     return (task_policy(task) == configured and task['graph_version'] ==
-        graph_version(task['kind'], task['profile'].get('profile_id'), configured, review_transport(task), qa_execution_protocol(task), review_api_protocol(task), structured_output_protocol(task), answer_revision_protocol(task), qa_context_protocol(task), qa_content_protocol(task), evidence_navigation_protocol(task)))
+        graph_version(task['kind'], task['profile'].get('profile_id'), configured, review_transport(task), qa_execution_protocol(task), review_api_protocol(task), structured_output_protocol(task), answer_revision_protocol(task), qa_context_protocol(task), qa_content_protocol(task), evidence_navigation_protocol(task), retrieval_rerank_protocol(task), task['profile'].get('rerank_config_sha256'), qa_retrieval_protocol(task)))
 
 
 def readable_runtime(task: dict) -> bool:
     # A reader can validate either known immutable policy. Dispatch lane/
     # creation settings do not decide whether a result may be projected/exported.
-    return task['graph_version'] == graph_version(task['kind'], task['profile'].get('profile_id'), task_policy(task), review_transport(task), qa_execution_protocol(task), review_api_protocol(task), structured_output_protocol(task), answer_revision_protocol(task), qa_context_protocol(task), qa_content_protocol(task), evidence_navigation_protocol(task))
+    return task['graph_version'] == graph_version(task['kind'], task['profile'].get('profile_id'), task_policy(task), review_transport(task), qa_execution_protocol(task), review_api_protocol(task), structured_output_protocol(task), answer_revision_protocol(task), qa_context_protocol(task), qa_content_protocol(task), evidence_navigation_protocol(task), retrieval_rerank_protocol(task), task['profile'].get('rerank_config_sha256'), qa_retrieval_protocol(task))
 
 
 def required_scopes(brief: dict) -> dict[str, list[PaperLocator]]:

@@ -27,11 +27,17 @@ class WindowInput(Input):
     maximum_active_seconds: Annotated[int, Field(ge=30, le=86400)]
     production_stale_seconds: Annotated[int, Field(ge=1)] | None = None
     client_operation_id: ID
+    protocol_profile: Literal["oai-fixed-window/1"] | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def fixed_scope(self) -> WindowInput:
         if self.lower_bound >= self.upper_bound or self.overlap >= self.page_size:
             raise ValueError("fixed_valid_window_and_overlap_required")
+        if self.protocol_profile is not None:
+            if (self.source_namespace != "arxiv" or self.query != "cat:cs.*"
+                or any(value.utcoffset().total_seconds() != 0 or (value.hour, value.minute, value.second, value.microsecond) != (0, 0, 0, 0)
+                    for value in (self.lower_bound, self.upper_bound))):
+                raise ValueError("OAI_fixed_UTC_day_window_and_cs_set_required")
         if len(set(self.managed_ids)) != len(self.managed_ids):
             raise ValueError("managed_ID_scope_must_be_unique")
         if self.managed_ids != sorted(self.managed_ids):

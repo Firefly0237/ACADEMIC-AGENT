@@ -62,6 +62,23 @@ class SourceReaders:
 
     def root(self, generation: GenerationSource) -> SourceRoot:
         kind = getattr(generation, "source_root_kind", None)
+        if kind == "publication_snapshot":
+            from citequest.updates_v2.publication import SnapshotService
+            from citequest.updates_v2.publication_contracts import PROFILE
+            from . import models as index
+            source = SnapshotService(self).snapshot(generation.publication_snapshot_id)
+            base = self.db.get(index.IndexGeneration, source.base_generation_id)
+            if (base is None or base.state not in {"active", "retired", "verified"} or not self.root(base).publication_eligible
+                or source.base_snapshot_id != generation.snapshot_id or source.catalog_name != generation.catalog_name
+                or source.security_domain != generation.security_domain or source.seal_sha256 != generation.source_manifest_sha256
+                or source.policy_sha256 != self.landing.policy_sha256 or source.evaluation_sha256 != self.landing.evaluation_sha256):
+                raise DomainError("publication_source_root_binding_mismatch", 409)
+            return SourceRoot(kind=kind, source_root_id=source.id, source_namespace="bounded_metadata_union",
+                security_domain=source.security_domain, representation_profile=PROFILE,
+                source_manifest_sha256=source.seal_sha256, source_seal_sha256=source.seal_sha256,
+                membership_sha256=source.membership_sha256, policy_sha256=source.policy_sha256,
+                evaluation_sha256=source.evaluation_sha256, state="staged", profile_adopted=True,
+                publication_eligible=True, catalog_name=source.catalog_name)
         if kind not in {"metadata_snapshot", "native_snapshot", "update_seal"}:
             raise DomainError("typed_index_schema_not_loaded", 409)
         if kind in {"metadata_snapshot", "native_snapshot"}:
@@ -134,6 +151,11 @@ class SourceReaders:
         )
 
     def references(self, root: SourceRoot, *, limit: int | None = None) -> list[SourceReference]:
+        if root.kind == "publication_snapshot":
+            from pydantic import TypeAdapter
+            from citequest.updates_v2.publication import SnapshotService
+            rows = SnapshotService(self).members(root.source_root_id)
+            return [TypeAdapter(SourceReference).validate_json(json.dumps(item.reference)) for item in (rows if limit is None else rows[:limit])]
         if root.state == "disabled":
             raise DomainError("source_root_disabled", 409)
         if limit is not None and (type(limit) is not int or not 1 <= limit <= 64183):
@@ -224,6 +246,29 @@ class SourceReaders:
         return row.index_projection_id
 
     def read(self, root: SourceRoot, reference: SourceReference) -> CanonicalSourceUnit | DeniedSourceUnit:
+        if root.kind == "publication_snapshot":
+            from types import SimpleNamespace
+            from . import models as index
+            member = self.db.get(updates.PublicationMember, (root.source_root_id, self.unit_id(reference)))
+            if member is None or member.reference != reference.model_dump(mode="json"):
+                raise DomainError("source_not_in_publication_snapshot", 404)
+            if member.origin_generation_id is not None:
+                origin = self.db.get(index.IndexGeneration, member.origin_generation_id)
+                if origin is None or origin.source_root_kind == "publication_snapshot":
+                    raise DomainError("flattened_original_source_generation_required", 409)
+                original_root = self.root(origin)
+            else:
+                seal = self.db.get(updates.UpdateSeal, member.origin_seal_id)
+                if seal is None:
+                    raise DomainError("publication_original_observation_seal_missing", 409)
+                original_root = self.root(SimpleNamespace(source_root_kind="update_seal", update_seal_id=seal.id,
+                    security_domain=root.security_domain, source_manifest_sha256=seal.seal_sha256,
+                    source_namespace=seal.source_namespace, catalog_name="managed_metadata"))
+            unit = self.read(original_root, reference)
+            if (unit.projection_sha256 != member.projection_sha256 or unit.source_pointer_sha256 != member.source_pointer_sha256
+                or unit.native_id != member.native_id or unit.root.source_namespace != member.source_namespace):
+                raise DomainError("publication_member_original_source_changed", 409)
+            return unit
         if root.state == "disabled":
             raise DomainError("source_root_disabled", 409)
         if isinstance(reference, MetadataReference):

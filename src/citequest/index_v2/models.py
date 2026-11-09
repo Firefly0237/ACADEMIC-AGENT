@@ -35,7 +35,7 @@ class IndexGeneration(Identity, Base):
         UniqueConstraint("id", "security_domain"),
         UniqueConstraint("id", "security_domain", "catalog_name"),
         CheckConstraint(
-            "(source_root_kind IN ('metadata_snapshot','native_snapshot') AND snapshot_id IS NOT NULL AND update_seal_id IS NULL) OR (source_root_kind='update_seal' AND snapshot_id IS NULL AND update_seal_id IS NOT NULL)",
+            "(source_root_kind IN ('metadata_snapshot','native_snapshot') AND snapshot_id IS NOT NULL AND update_seal_id IS NULL AND publication_snapshot_id IS NULL) OR (source_root_kind='update_seal' AND snapshot_id IS NULL AND update_seal_id IS NOT NULL AND publication_snapshot_id IS NULL) OR (source_root_kind='publication_snapshot' AND snapshot_id IS NOT NULL AND update_seal_id IS NULL AND publication_snapshot_id IS NOT NULL)",
             name="exact_typed_index_source_root",
         ),
         UniqueConstraint("collection_name"),
@@ -51,6 +51,7 @@ class IndexGeneration(Identity, Base):
     )
     snapshot_id: Mapped[UUID | None] = mapped_column(Uuid)
     update_seal_id: Mapped[UUID | None] = mapped_column(ForeignKey(f"{SCHEMA}.source_update_seals.id"))
+    publication_snapshot_id: Mapped[UUID | None] = mapped_column(ForeignKey(f"{SCHEMA}.source_publication_snapshots.id"))
     source_root_kind: Mapped[str] = mapped_column(
         String(30), default="metadata_snapshot", server_default="metadata_snapshot"
     )
@@ -85,7 +86,7 @@ class IndexGeneration(Identity, Base):
 class IndexUnit(Base):
     __tablename__ = "index_units"
     __table_args__ = (
-        UniqueConstraint("generation_id", "native_id"),
+        UniqueConstraint("generation_id", "source_namespace", "native_id"),
         CheckConstraint(
             "(source_reference_kind='metadata_projection' AND metadata_projection_id IS NOT NULL AND native_representation_id IS NULL AND update_observation_id IS NULL) OR (source_reference_kind='native_representation' AND metadata_projection_id IS NULL AND native_representation_id IS NOT NULL AND update_observation_id IS NULL) OR (source_reference_kind='update_observation' AND metadata_projection_id IS NULL AND native_representation_id IS NULL AND update_observation_id IS NOT NULL)",
             name="exact_typed_index_source_reference",

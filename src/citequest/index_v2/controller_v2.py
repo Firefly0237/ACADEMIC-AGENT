@@ -20,6 +20,13 @@ from .variant_compiler import compile_unit
 
 
 class VariantIndexController:
+    def before_native_configuration(self, generation_id: UUID) -> None:
+        """Trusted subclasses can require deployment binding before native writes."""
+    @staticmethod
+    def admit_window(kind: str, unit_limit: int | None, seconds: float) -> None:
+        if (type(unit_limit) is not int or not 1 <= unit_limit <= 100
+            or type(seconds) not in {float, int} or not 0 < seconds <= 900):
+            raise ValueError("typed_pilot_maximum_100_units_900_seconds")
     def __init__(
         self,
         factory: sessionmaker[Session],
@@ -52,20 +59,14 @@ class VariantIndexController:
         root_id: UUID,
         generation_id: UUID,
         *,
-        unit_limit: int,
+        unit_limit: int | None,
         seconds: float,
         checkpoint: Callable[[dict], None],
         allow_uncertain_replay: bool = False,
     ) -> dict:
         # This controller is intentionally only a bounded technical pilot. A
         # whole-corpus profile must be declared after measured pilot resources.
-        if (
-            type(unit_limit) is not int
-            or not 1 <= unit_limit <= 100
-            or type(seconds) not in {float, int}
-            or not 0 < seconds <= 900
-        ):
-            raise ValueError("typed_pilot_maximum_100_units_900_seconds")
+        self.admit_window(kind, unit_limit, seconds)
         started = time.monotonic()
         deadline = started + seconds
         self.native.absolute_deadline = deadline
@@ -103,6 +104,7 @@ class VariantIndexController:
             }
         if summary["state"] != "building" or time.monotonic() >= deadline - 20:
             return {"status": "window_stopped", "generation": summary}
+        self.before_native_configuration(generation_id)
         configuration = self.native.create(summary["collection_name"])
         self.tx(lambda r: r.bind_server_proof(generation_id, configuration))
         checkpoint({"event": "native_configuration_verified", "proof": configuration})

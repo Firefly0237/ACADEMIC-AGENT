@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from citequest.agents_v3.contracts import ID, Strict
+from citequest.agents_v3.contracts import ID, ReviewSource, Strict
 
 Format = Literal["docx", "html", "pdf"]
 
@@ -15,6 +15,7 @@ Format = Literal["docx", "html", "pdf"]
 class ExportCreate(Strict):
     operation_id: ID
     formats: list[Format] = Field(min_length=1, max_length=3)
+    source_binding: ReviewSource | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def unique(self) -> ExportCreate:
@@ -37,6 +38,7 @@ class ArtifactDTO(Strict):
 class ExportDTO(Strict):
     id: ID
     task_id: ID
+    source_binding: ReviewSource | None = Field(default=None, exclude_if=lambda value: value is None)
     state: Literal["queued", "running", "succeeded", "failed", "cancelled"]
     requested_formats: list[Format]
     availability: Literal["pending", "available", "not_available", "source_unavailable"]

@@ -91,6 +91,35 @@ class SourceFieldLocator(Output):
 SourceLocator = Annotated[PDFLocator | DOCXLocator | TextLocator | SourceFieldLocator, Field(discriminator="kind")]
 
 
+class NativeTableCell(Output):
+    row_span: Annotated[int, Field(ge=1)] | None = None
+    col_span: Annotated[int, Field(ge=1)] | None = None
+    start_row_offset_idx: Annotated[int, Field(ge=0)] | None = None
+    end_row_offset_idx: Annotated[int, Field(ge=0)] | None = None
+    start_col_offset_idx: Annotated[int, Field(ge=0)] | None = None
+    end_col_offset_idx: Annotated[int, Field(ge=0)] | None = None
+    column_header: bool | None = None
+    row_header: bool | None = None
+    row_section: bool | None = None
+
+
+class NativeProvenance(Output):
+    structure_version: Literal["docling-native-structure/1"]
+    item_ref: str | None = None
+    table_ref: str | None = None
+    item_label: str | None = None
+    parent_ref: str | None = None
+    section_level: Annotated[int, Field(ge=1)] | None = None
+    prov_index: Annotated[int, Field(ge=0)] | None = None
+    charspan_in_native_text: Annotated[list[int], Field(min_length=2, max_length=2)] | None = None
+    native_text_sha256: SHA | None = None
+    native_orig_sha256: SHA | None = None
+    orig_differs_from_text: bool | None = None
+    cell_index: Annotated[int, Field(ge=0)] | None = None
+    cell_text_sha256: SHA | None = None
+    table_cell: NativeTableCell | None = None
+
+
 class MaterialFragment(Output):
     fragment_id: SHA
     ordinal: Annotated[int, Field(ge=1)]
@@ -108,6 +137,7 @@ class MaterialFragment(Output):
     granularity: Literal["paragraph", "table", "formula"]
     bbox_granularity: Literal["native region enclosing this character span"] | None
     target_exceeded_due_to_source_boundary: bool
+    native_provenance: NativeProvenance | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class MaterialFragments(Output):

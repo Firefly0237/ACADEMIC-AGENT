@@ -1,0 +1,86 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+export DOCKER_CONFIG=/var/lib/citequest/docker
+install -d -m 0700 "$DOCKER_CONFIG"
+install -d -m 0750 -o 0 -g 10001 /run/citequest /run/citequest/config /run/citequest/secrets
+
+%{ if role_name != "web" ~}
+device=/dev/disk/by-id/google-citequest-state
+test -b "$device"
+if probe=$(blkid -p -o export "$device"); then
+  filesystem=$(printf '%s\n' "$probe" | sed -n 's/^TYPE=//p')
+  if [ "$filesystem" != ext4 ]; then
+    echo 'state_disk_requires_existing_ext4' >&2
+    exit 64
+  fi
+else
+  probe_status=$?
+  # Only blkid's "no signature" result can initialize a new disk. I/O errors,
+  # ambiguous signatures and recognized partition tables fail closed.
+  if [ "$probe_status" -ne 2 ] || [ -n "$probe" ]; then
+    echo 'state_disk_probe_failed' >&2
+    exit 64
+  fi
+%{ if initialize_disk ~}
+  # Terraform creates a separate blank disk. Never reformat a recognized FS.
+  mkfs.ext4 -L citequest-state "$device" >/dev/null
+%{ else ~}
+  echo 'state_disk_needs_explicit_blank_disk_initialization' >&2
+  exit 64
+%{ endif ~}
+fi
+install -d -m 0750 /var/lib/citequest/state
+if ! mountpoint -q /var/lib/citequest/state; then
+  mount -o nodev,nosuid "$device" /var/lib/citequest/state
+fi
+chown 10001:10001 /var/lib/citequest/state
+chmod 0750 /var/lib/citequest/state
+%{ endif ~}
+%{ if role_name == "export" ~}
+# Renderer archives can be large; retain them on PD rather than /run tmpfs.
+install -d -m 0750 /var/lib/citequest/state/export-release /run/citequest/config/export-release
+if ! mountpoint -q /run/citequest/config/export-release; then
+  mount --bind /var/lib/citequest/state/export-release /run/citequest/config/export-release
+fi
+%{ endif ~}
+
+# Use metadata identity; no service-account key, ADC file or repurposed HOME.
+# Docker's credential file is on COS's persistent writable partition.
+%{ for registry in registries ~}
+token=$(curl --fail --silent --show-error --retry 3 --connect-timeout 5 \
+  -H 'Metadata-Flavor: Google' \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token \
+  | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+test -n "$token"
+printf '%s' "$token" | docker login --username oauth2accesstoken --password-stdin '${registry}' >/dev/null
+unset token
+%{ endfor ~}
+
+docker pull '${bootstrap_image}' >/dev/null
+docker run --rm --network=host --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+  --tmpfs=/tmp:rw,nosuid,nodev,size=128m \
+  --env=CLOUDSDK_CONFIG=/tmp/gcloud --env=CLOUDSDK_CORE_DISABLE_PROMPTS=1 \
+  --mount=type=bind,src=/run/citequest,dst=/runtime \
+  --mount=type=bind,src=/var/lib/citequest/fetch.sh,dst=/fetch.sh,readonly \
+  --entrypoint=/bin/bash '${bootstrap_image}' /fetch.sh
+chown -R 10001:10001 /run/citequest/config /run/citequest/secrets
+find /run/citequest/config /run/citequest/secrets -type f -exec chmod 0400 {} +
+find /run/citequest/config /run/citequest/secrets -type d -exec chmod 0500 {} +
+docker pull '${role.image}' >/dev/null
+%{ if role_name != "parser" ~}
+docker pull '${proxy_image}' >/dev/null
+
+# Docker's local NFS volume driver mounts via the daemon; no package install,
+# FUSE caching or per-VM filesystem is substituted for the shared source CAS.
+docker volume create --driver=local \
+  --opt=type=nfs --opt='o=addr=${source_nfs.address},nfsvers=4.1,rw,hard,timeo=600,retrans=2' \
+  --opt='device=:${source_nfs.export_path}' '${source_volume}' >/dev/null
+%{ endif ~}
+%{ if role.renderer_archive != null ~}
+# CI's OCI transport digest and Docker image identity are separate bindings.
+docker load --input '/run/citequest/config/${role.renderer_archive.config_file}' >/dev/null
+observed=$(docker image inspect --format='{{.Id}}' '${role.renderer_archive.image_id}')
+test "$observed" = '${role.renderer_archive.image_id}'
+%{ endif ~}
+printf '%s\n' 'prepared:${role_name}'

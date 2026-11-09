@@ -148,10 +148,10 @@ def resolve_work_selections(
                 coverage = "native_literal"
             elif (
                 not require_full_text
-                and unit.source_reference_kind == "metadata_projection"
-                and unit.metadata_projection_id
+                and unit.source_reference_kind in {"metadata_projection", "update_observation"}
+                and (unit.metadata_projection_id or unit.update_observation_id)
             ):
-                locator = PaperLocator(kind="metadata_projection", id=str(unit.metadata_projection_id))
+                locator = PaperLocator(kind="metadata_projection", id=str(unit.metadata_projection_id or unit.update_observation_id))
                 coverage = "metadata"
             else:
                 results.append(unavailable("source_coverage_not_allowed"))
@@ -162,7 +162,7 @@ def resolve_work_selections(
                 results.append(unavailable("source_not_found_or_denied" if exc.status in {403, 404} else exc.code))
                 continue
             if (
-                snapshot.id != generation.snapshot_id
+                snapshot.id != (generation.publication_snapshot_id if unit.source_reference_kind == "update_observation" else generation.snapshot_id)
                 or current.work_id != work_id
                 or current.work_version_id != unit.work_version_id
                 or current.projection_sha256 != unit.projection_sha256

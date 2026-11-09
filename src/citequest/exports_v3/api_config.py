@@ -24,6 +24,7 @@ from .release import load_release, verify_release_assets
 class ExportAPIConfig(Strict):
     schema_version: Literal["citequest-export-api/1"]
     workspace: Path
+    release_assets_root: Path | None = None
     release_profile_file: Path
     release_profile_sha256: SHA
     artifact_store: BlobStoreConfig
@@ -32,7 +33,9 @@ class ExportAPIConfig(Strict):
 def configured_api(path: Path) -> ExportAPIConfig:
     path = path.resolve(strict=True)
     value = json.loads(path.read_bytes())
-    for key in ("workspace", "release_profile_file"):
+    for key in ("workspace", "release_assets_root", "release_profile_file"):
+        if value.get(key) is None:
+            continue
         reference = Path(value[key])
         value[key] = str(reference if reference.is_absolute() else path.parent / reference)
     for key in ("filesystem_root", "spool_dir"):
@@ -54,7 +57,7 @@ def domain_from_config(
 ) -> ExportDomain:
     config = ExportAPIConfig.model_validate(config.model_dump(mode="python"), strict=True)
     release = load_release(config.release_profile_file, config.release_profile_sha256)
-    verify_release_assets(config.workspace, release)
+    verify_release_assets(config.release_assets_root or config.workspace, release)
     return build_export_domain(
         factory,
         tasks,

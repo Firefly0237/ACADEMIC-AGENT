@@ -54,7 +54,7 @@ class DenialReceipt(Strict):
 
 
 class SourceRoot(Strict):
-    kind: Literal["metadata_snapshot", "native_snapshot", "update_seal"]
+    kind: Literal["metadata_snapshot", "native_snapshot", "update_seal", "publication_snapshot"]
     source_root_id: UUID
     source_namespace: Annotated[str, Field(min_length=1, max_length=100)]
     security_domain: Annotated[str, Field(min_length=1, max_length=100)]
@@ -75,6 +75,7 @@ class SourceRoot(Strict):
             "metadata_snapshot": ("standard_metadata", "litsearch-clean-exact/1"),
             "native_snapshot": ("application_papers", "litsearch-s2orc-native-text/1"),
             "update_seal": ("managed_metadata", "cq.protocol-metadata/1"),
+            "publication_snapshot": ("standard_metadata", "cq.bounded-observed-metadata-union/1"),
         }
         if (self.catalog_name, self.representation_profile) != expected[self.kind]:
             raise ValueError("source_root_profile_catalog_mismatch")

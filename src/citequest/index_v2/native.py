@@ -435,7 +435,7 @@ class NativeMilvus:
         if remaining <= 0:
             raise RPCBudgetError("controller_window_exhausted_before_TEI_info")
         with httpx.Client(trust_env=False, timeout=remaining) as http:
-            response = http.get("http://127.0.0.1:18088/info")
+            response = http.get(getattr(self, "tei_info_url", "http://127.0.0.1:18088/info"))
         if response.status_code != 200 or len(response.content) > 200000:
             raise ValueError("actual_strict_TEI_info_unavailable")
         tei = response.json()

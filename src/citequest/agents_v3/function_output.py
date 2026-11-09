@@ -21,12 +21,16 @@ def validate_profile_transport(profile: dict, request: dict) -> None:
     selected = profile.get(PROFILE_BINDING_KEY)
     if selected == "json1":
         if profile.get("profile_id") in {"qa-v8", "qa-v9"}:
-            from .product_profiles import require_qa8_protocol
+            from .product_profiles import qa_retrieval_protocol, require_qa8_protocol
             require_qa8_protocol({"kind": "qa", "profile": profile})
+            names = {"citequest_qa5_plan", "citequest_qa5_author", "citequest_qa5_review"}
+            if qa_retrieval_protocol({"kind": "qa", "profile": profile}) == "adaptive1":
+                from .qa_adaptive_contracts import SUPPLEMENT_SCHEMA_NAME
+                names.add(SUPPLEMENT_SCHEMA_NAME)
             fmt = request.get("text", {}).get("format", {})
             if (request.get("tools") or request.get("tool_choice") is not None
                     or fmt.get("type") != "json_schema" or fmt.get("strict") is not True
-                    or fmt.get("name") not in {"citequest_qa5_plan", "citequest_qa5_author", "citequest_qa5_review"}):
+                    or fmt.get("name") not in names):
                 raise AgentError("json2_explicit_text_submission_contract_invalid")
             return
         fmt = request.get("text", {}).get("format", {})

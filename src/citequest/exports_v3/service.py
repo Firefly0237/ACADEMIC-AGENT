@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
-from citequest.agents_v3.contracts import AgentError, digest
+from citequest.agents_v3.contracts import AgentError, ReviewSource, canonical, digest
 from citequest.platform_v3.blob_store import BlobIdentity, BlobReference, BlobStore
 from citequest.research_v3.school_contracts import SchoolDocument
 from citequest.research_v3.school_export import validate_export_document
@@ -58,6 +58,8 @@ class ExportService:
         store: BlobStore,
         profile: ExportProfile,
         pager: Pager,
+        *,
+        authorize_version: Callable[[Actor, UUID, ReviewSource], dict] | None = None,
     ) -> None:
         self.factory, self.authorize, self.store, self.profile, self.pager = (
             factory,
@@ -66,12 +68,17 @@ class ExportService:
             profile,
             pager,
         )
+        self.authorize_version = authorize_version
 
     def ready(self) -> None:
         with self.factory() as db:
             if not db.execute(
                 text(
-                    "SELECT to_regclass('cq_app.agent_document_exports') IS NOT NULL AND to_regclass('cq_app.agent_export_operations') IS NOT NULL AND to_regclass('cq_app.agent_export_events') IS NOT NULL"
+                    """SELECT to_regclass('cq_app.agent_document_exports') IS NOT NULL
+                    AND to_regclass('cq_app.agent_export_operations') IS NOT NULL
+                    AND to_regclass('cq_app.agent_export_events') IS NOT NULL
+                    AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='cq_app'
+                        AND table_name='agent_document_exports' AND column_name='source_binding')"""
                 )
             ).scalar_one():
                 raise DomainError("export_migration_required", 503)
@@ -90,10 +97,23 @@ class ExportService:
             raise DomainError("not_found", 404)
         return dict(row)
 
-    def document(self, actor: Actor, task_id: UUID, expected: dict | None = None) -> tuple[dict, SchoolDocument]:
+    def document(self, actor: Actor, task_id: UUID, expected: dict | None = None, *,
+                 source_binding: ReviewSource | dict | None = None) -> tuple[dict, SchoolDocument]:
         # The injected parent closure owns Brief/memory/Skill/evidence projection.
         # Do not reimplement its guard or accept a cached result as a fallback.
-        task = self.authorize(actor, task_id)
+        saved_binding = expected.get("source_binding") if expected is not None else source_binding
+        binding = (saved_binding if isinstance(saved_binding, ReviewSource)
+            else ReviewSource.model_validate_json(canonical(saved_binding), strict=True) if saved_binding is not None else None)
+        if expected is not None and source_binding is not None:
+            explicit = source_binding if isinstance(source_binding, ReviewSource) else ReviewSource.model_validate_json(canonical(source_binding), strict=True)
+            if explicit != binding:
+                raise DomainError("export_source_version_conflict", 409)
+        if binding is not None:
+            if binding.source_task_id != task_id or self.authorize_version is None:
+                raise DomainError("export_exact_source_authorizer_required", 409)
+            task = self.authorize_version(actor, task_id, binding)
+        else:
+            task = self.authorize(actor, task_id)
         if str(task.get("id")) != str(task_id) or task.get("kind") != "research" or task.get("state") != "succeeded":
             raise DomainError("reviewed_school_task_required", 409)
         result = task.get("result")
@@ -109,6 +129,9 @@ class ExportService:
         if document.reference_admission.provenance != "current_authorized_metadata":
             raise DomainError("fixture_document_cannot_be_exported", 409)
         validate_export_document(document)
+        if binding is not None and (digest(document.model_dump(mode="json")) != binding.document_sha256
+                or digest(document.context_manifest) != binding.context_sha256):
+            raise DomainError("export_exact_source_binding_changed", 409)
         if expected is not None and (
             digest(document.model_dump(mode="json")) != expected["document_sha256"]
             or digest(document.context_manifest) != expected["context_sha256"]
@@ -165,7 +188,11 @@ class ExportService:
 
     def create(self, actor: Actor, task_id: UUID, body: ExportCreate) -> dict:
         formats = sorted(body.formats)
-        fingerprint = digest({"kind": "create", "task_id": str(task_id), "formats": formats})
+        identity = {"kind": "create", "task_id": str(task_id), "formats": formats}
+        binding = body.source_binding.model_dump(mode="json") if body.source_binding is not None else None
+        if binding is not None:
+            identity["source_binding"] = binding
+        fingerprint = digest(identity)
         with self.factory() as db:
             prior = self._replay(db, actor, body.operation_id, fingerprint)
             prior_row = self._row(db, actor.owner_id, prior) if prior is not None else None
@@ -174,7 +201,7 @@ class ExportService:
         # Current source authorization may perform private blob IO. Keep it
         # outside the short global/owner admission locks and reauthorize again
         # at dispatch/publication/download rather than holding SQL over IO.
-        task, document = self.document(actor, task_id)
+        task, document = self.document(actor, task_id, source_binding=body.source_binding)
         self.expire()
         with self.factory.begin() as db:
             # One short transaction-wide queue admission lock; no network/office
@@ -202,8 +229,8 @@ class ExportService:
                 row = dict(
                     db.execute(
                         text(f"""INSERT INTO {TABLE}
-                    (id,owner_id,project_id,task_id,document_sha256,context_sha256,requested_formats,toolchain_profile,toolchain_sha256,font_profile)
-                    VALUES(:id,:owner,:project,:task,:document,:context,CAST(:formats AS jsonb),:toolchain,:toolchain_sha,:font) RETURNING *"""),
+                    (id,owner_id,project_id,task_id,document_sha256,context_sha256,requested_formats,toolchain_profile,toolchain_sha256,font_profile,source_binding)
+                    VALUES(:id,:owner,:project,:task,:document,:context,CAST(:formats AS jsonb),:toolchain,:toolchain_sha,:font,CAST(:source_binding AS jsonb)) RETURNING *"""),
                         {
                             "id": uuid4(),
                             "owner": actor.owner_id,
@@ -215,6 +242,7 @@ class ExportService:
                             "toolchain": self.profile.id,
                             "toolchain_sha": self.profile.toolchain_sha256,
                             "font": self.profile.font_profile,
+                            "source_binding": json.dumps(binding) if binding is not None else None,
                         },
                     )
                     .mappings()
@@ -230,7 +258,9 @@ class ExportService:
         return self.present(actor, row)
 
     def page(self, actor: Actor, task_id: UUID, *, limit: int = 10, cursor: str | None = None) -> dict:
-        self.document(actor, task_id)
+        task = self.authorize(actor, task_id)
+        if str(task.get("id")) != str(task_id) or task.get("kind") != "research":
+            raise DomainError("reviewed_school_task_required", 409)
         if not 1 <= limit <= 20:
             raise DomainError("invalid_export_page", 400)
         identity = {"owner": str(actor.owner_id), "task_id": str(task_id), "kind": "school_exports", "limit": limit}
@@ -292,6 +322,7 @@ class ExportService:
         return ExportDTO(
             id=row["id"],
             task_id=row["task_id"],
+            source_binding=row.get("source_binding"),
             state=row["state"],
             requested_formats=row["requested_formats"],
             availability=availability,

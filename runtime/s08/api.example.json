@@ -13,7 +13,7 @@
   "catalog_scope_policy": "task-catalog-snapshot/1",
   "task_profile_policy": {
     "schema_version": "new-task-profile-policy/1",
-    "release_id": "core-product-20261108-v1",
+    "release_id": "core-product-20261109-v2",
     "profiles": [
       {
         "kind": "qa",
@@ -25,7 +25,8 @@
         "structured_output_protocol": "chat-json2",
         "answer_revision_protocol": "jsonpatch1",
         "qa_context_protocol": "references1",
-        "qa_content_protocol": "isolated1"
+        "qa_content_protocol": "isolated1",
+        "qa_retrieval_protocol": "adaptive1"
       },
       {
         "kind": "summary",
@@ -45,9 +46,19 @@
       },
       {
         "kind": "research",
-        "profile_id": "research-v5",
+        "profile_id": "research-v6",
         "validation_state": "development"
       }
-    ]
+    ],
+    "research_review_profile": {
+      "kind": "research",
+      "profile_id": "research-review-v1",
+      "validation_state": "development"
+    },
+    "research_revision_profile": {
+      "kind": "research",
+      "profile_id": "research-revision-v1",
+      "validation_state": "development"
+    }
   }
 }

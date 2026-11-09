@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Literal
+import re
 
 from pydantic import Field, model_validator
 
@@ -19,7 +20,10 @@ STRUCTURED_OUTPUT_BINDING_KEY = "structured_output_protocol"
 ANSWER_REVISION_BINDING_KEY = "answer_revision_protocol"
 QA_CONTEXT_BINDING_KEY = "qa_context_protocol"
 QA_CONTENT_BINDING_KEY = "qa_content_protocol"
+QA_RETRIEVAL_BINDING_KEY = "qa_retrieval_protocol"
 EVIDENCE_NAVIGATION_BINDING_KEY = "evidence_navigation_protocol"
+RERANK_PROTOCOL_KEY = "retrieval_rerank_protocol"
+RERANK_CONFIG_KEY = "rerank_config_sha256"
 QA8_PROTOCOL_METADATA = {
     "review_transport_protocol": "json1", "qa_execution_protocol": "grounded3",
     "review_api_protocol": "chat-json2", "structured_output_protocol": "chat-json2",
@@ -50,7 +54,10 @@ class NewTaskProfile(Strict):
     answer_revision_protocol: Literal["jsonpatch1"] | None = Field(default=None, exclude_if=lambda value: value is None)
     qa_context_protocol: Literal["references1"] | None = Field(default=None, exclude_if=lambda value: value is None)
     qa_content_protocol: Literal["anchored2", "online1", "isolated1"] | None = Field(default=None, exclude_if=lambda value: value is None)
-    evidence_navigation_protocol: Literal["laya1"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    qa_retrieval_protocol: Literal["adaptive1"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    evidence_navigation_protocol: Literal["laya1", "laya2"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    retrieval_rerank_protocol: Literal["tei-cross-encoder1"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    rerank_config_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$", exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def known_kind_profile(self) -> NewTaskProfile:
@@ -60,6 +67,14 @@ class NewTaskProfile(Strict):
             raise ValueError("configured profile does not implement the task kind")
         if not is_profile_implemented(self.profile_id):
             raise ValueError("configured profile implementation is incomplete")
+        if self.qa_retrieval_protocol is not None and (
+                (self.kind, self.profile_id) != ("qa", "qa-v9") or self.qa_content_protocol != "isolated1"):
+            raise ValueError("adaptive retrieval requires the independently reviewed QA9 workflow")
+        if (self.retrieval_rerank_protocol is None) != (self.rerank_config_sha256 is None):
+            raise ValueError("reranking requires an explicit protocol and exact trusted configuration SHA")
+        if self.retrieval_rerank_protocol is not None and (
+                (self.kind, self.profile_id) != ("qa", "qa-v9") or self.qa_content_protocol != "isolated1"):
+            raise ValueError("TEI reranking requires the independently reviewed QA9 workflow")
         if self.qa_content_protocol is not None and (self.kind, self.profile_id) != ("qa", "qa-v9"):
             raise ValueError("decomposed content review requires the registered QA9 profile")
         if self.evidence_navigation_protocol is not None and (
@@ -106,22 +121,38 @@ class TaskProfilePolicy(Strict):
     schema_version: Literal["new-task-profile-policy/1"] = "new-task-profile-policy/1"
     release_id: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$")
     profiles: list[NewTaskProfile] = Field(max_length=5)
+    research_review_profile: NewTaskProfile | None = Field(default=None, exclude_if=lambda value: value is None)
+    research_revision_profile: NewTaskProfile | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def one_per_kind(self) -> TaskProfilePolicy:
         if len({item.kind for item in self.profiles}) != len(self.profiles):
             raise ValueError("each new task kind must have exactly one configured profile")
+        if any(item.profile_id in {"research-review-v1", "research-revision-v1"} for item in self.profiles):
+            raise ValueError("review is an explicit research action, not the default research entry")
+        if self.research_review_profile is not None and (
+                self.research_review_profile.kind != "research" or
+                self.research_review_profile.profile_id != "research-review-v1"):
+            raise ValueError("research review requires its registered auxiliary profile")
+        if self.research_revision_profile is not None and (
+                self.research_revision_profile.kind != "research" or
+                self.research_revision_profile.profile_id != "research-revision-v1"):
+            raise ValueError("research revision requires its registered auxiliary profile")
         return self
 
     def admit(self, body: TaskCreate) -> None:
-        configured = next((item for item in self.profiles if item.kind == body.kind), None)
+        configured = (self.research_review_profile if body.profile_id == "research-review-v1" else
+                      self.research_revision_profile if body.profile_id == "research-revision-v1" else
+                      next((item for item in self.profiles if item.kind == body.kind), None))
         if configured is None:
             raise AgentError("task_kind_not_enabled_for_new_tasks", 503)
         if body.profile_id != configured.profile_id:
             raise AgentError("task_profile_refresh_required", 409)
 
     def runtime_metadata(self, kind: str, profile_id: str) -> dict:
-        configured = next((item for item in self.profiles if (item.kind, item.profile_id) == (kind, profile_id)), None)
+        configured = (self.research_review_profile if (kind, profile_id) == ("research", "research-review-v1") else
+                      self.research_revision_profile if (kind, profile_id) == ("research", "research-revision-v1") else
+                      next((item for item in self.profiles if (item.kind, item.profile_id) == (kind, profile_id)), None))
         metadata = ({PROFILE_BINDING_KEY: configured.review_transport_protocol}
             if configured is not None and configured.review_transport_protocol is not None else {})
         if configured is not None and configured.qa_execution_protocol is not None:
@@ -136,14 +167,41 @@ class TaskProfilePolicy(Strict):
             metadata[QA_CONTEXT_BINDING_KEY] = configured.qa_context_protocol
         if configured is not None and configured.qa_content_protocol is not None:
             metadata[QA_CONTENT_BINDING_KEY] = configured.qa_content_protocol
+        if configured is not None and configured.qa_retrieval_protocol is not None:
+            metadata[QA_RETRIEVAL_BINDING_KEY] = configured.qa_retrieval_protocol
         if configured is not None and configured.evidence_navigation_protocol is not None:
             metadata[EVIDENCE_NAVIGATION_BINDING_KEY] = configured.evidence_navigation_protocol
+        if configured is not None and configured.retrieval_rerank_protocol is not None:
+            metadata[RERANK_PROTOCOL_KEY] = configured.retrieval_rerank_protocol
+            metadata[RERANK_CONFIG_KEY] = configured.rerank_config_sha256
         return metadata
+
+
+def qa_retrieval_protocol(task: dict) -> str | None:
+    """Only immutable, server-selected QA9 metadata enables supplementary retrieval."""
+    value = task["profile"].get(QA_RETRIEVAL_BINDING_KEY)
+    if value is not None and (value != "adaptive1" or task.get("kind") != "qa"
+            or task["profile"].get("profile_id") != "qa-v9"
+            or qa_content_protocol(task) != "isolated1"):
+        raise AgentError("task_qa_retrieval_protocol_not_supported", 503)
+    return value
+
+
+def retrieval_rerank_protocol(task: dict) -> str | None:
+    profile = task["profile"]
+    value, sha = profile.get(RERANK_PROTOCOL_KEY), profile.get(RERANK_CONFIG_KEY)
+    if value is None and sha is None:
+        return None
+    if (value != "tei-cross-encoder1" or not isinstance(sha, str) or re.fullmatch(r"[a-f0-9]{64}", sha) is None
+            or task.get("kind") != "qa" or profile.get("profile_id") != "qa-v9"
+            or qa_content_protocol(task) != "isolated1"):
+        raise AgentError("task_retrieval_rerank_protocol_not_supported", 503)
+    return value
 
 
 def evidence_navigation_protocol(task: dict) -> str | None:
     value = task["profile"].get(EVIDENCE_NAVIGATION_BINDING_KEY)
-    if value is not None and (value != "laya1" or task.get("kind") != "qa"
+    if value is not None and (value not in {"laya1", "laya2"} or task.get("kind") != "qa"
             or task["profile"].get("profile_id") != "qa-v9"
             or qa_content_protocol(task) != "isolated1"):
         raise AgentError("task_evidence_navigation_not_supported", 503)

@@ -31,9 +31,9 @@ output "foundation_contract" {
       api    = { for name, ref in var.api_secret_refs : name => "projects/${var.project_id}/secrets/${ref.secret_id}/versions/${ref.version}" }
       worker = { for name, ref in var.worker_secret_refs : name => "projects/${var.project_id}/secrets/${ref.secret_id}/versions/${ref.version}" }
     }
+    workload_module = "deploy/gcp/workloads"
     pending_modules = [
-      "Reviewed Cloud Run production image + OIDC/session + GCS business bridge + VPC/IAM connector wiring",
-      "Reviewed private GCE model/index and worker images, disks, network/egress policy and restricted Linux parser",
+      "Private external Milvus/TEI serving endpoints and shared POSIX source CAS",
       "SQL role/schema/privilege bootstrap, migrations and restored-data verification",
       "Remote state governance, real IAM/API/region/HA/backup/restore/cost/capacity acceptance"
     ]

@@ -56,6 +56,7 @@ def main() -> int:
         csl=Path("/assets/harvard.csl"),
         mode="reviewed_school_draft",
         content_sha256=document.content_hash(),
+        profile=document.profile,
     )
     files = {"docx": artifacts / "proposal.docx", "html": artifacts / "proposal.html"}
     html_audit = assert_safe_export_html(files["html"])

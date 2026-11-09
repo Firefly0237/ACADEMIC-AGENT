@@ -22,9 +22,15 @@ def managed_request(source: str, native_id: str) -> dict:
             "url": "https://api.crossref.org/works/" + quote(native_id, safe="")}
 
 
-def validate_request(config: WindowInput, request: dict) -> None:
+def validate_request(config: WindowInput, request: dict, cursor: dict | None = None) -> None:
     kind = request.get("kind")
-    if config.source_namespace == "arxiv" and kind in {"atom_page", "atom_head_recheck"}:
+    if kind == "oai_list" and config.protocol_profile == "oai-fixed-window/1":
+        from .oai_cursor import reserved_request, state_for
+        state = state_for(config, cursor or {})
+        if not state.awaiting_response:
+            raise ValueError("OAI_request_not_durably_reserved")
+        expected = reserved_request(state)
+    elif config.source_namespace == "arxiv" and kind in {"atom_page", "atom_head_recheck"} and config.protocol_profile is None:
         expected = atom_request(config, request.get("start"), head=kind == "atom_head_recheck")
         if kind == "atom_head_recheck" and request.get("start") != 0:
             raise ValueError("head_recheck_must_use_zero_offset")

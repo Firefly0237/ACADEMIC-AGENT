@@ -104,14 +104,13 @@ class ChunkEvidenceSearch:
                     index.IndexUnit.generation_id == generation.id, ~visible_unit(actor, generation.security_domain)).limit(5001)))
                 if len(denied) > 5000:
                     raise DomainError("visibility_prefilter_exceeds_bounded_native_plan", 503)
-                excluded = [canonical_sha({"snapshot_id": str(generation.snapshot_id), "projection_id": str(identifier)}) for identifier in denied]
+                excluded = self.search._row_keys(db, generation, denied)
                 included = None
                 if request.selected_papers:
-                    conditions = [(index.IndexUnit.native_representation_id == paper.id if paper.kind == "native_representation"
-                        else index.IndexUnit.metadata_projection_id == UUID(paper.id)) for paper in request.selected_papers]
+                    conditions = [self.search._paper_condition(paper) for paper in request.selected_papers]
                     selected = list(db.scalars(select(index.IndexUnit.projection_id).where(
                         index.IndexUnit.generation_id == generation.id, or_(*conditions), visible_unit(actor, generation.security_domain))))
-                    included = [canonical_sha({"snapshot_id": str(generation.snapshot_id), "projection_id": str(identifier)}) for identifier in selected]
+                    included = self.search._row_keys(db, generation, selected)
                 lease = index.IndexReaderLease(generation_id=generation.id, owner_id=actor.owner_id, epoch=pin.epoch,
                     expires_at=datetime.now(UTC) + timedelta(seconds=120))
                 db.add(lease)

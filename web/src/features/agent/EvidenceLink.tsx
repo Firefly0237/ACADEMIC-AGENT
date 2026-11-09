@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorText, paperPath, type PaperRef } from "../../api";
+import type { ReviewSource } from "../research/review";
 
 export type QuoteLocator = { span_start: number; span_end: number; coordinate_system: string };
 export type QuoteFocus = { quote: string; quote_locator?: QuoteLocator };
@@ -48,7 +49,7 @@ function allowedSourceURL(value?: string): string | undefined {
   } catch { return undefined; }
 }
 
-export function EvidenceLink({ taskId, refId, focus }: { taskId: string; refId: string; focus?: QuoteFocus }) {
+export function EvidenceLink({ taskId, refId, focus, sourceBinding }: { taskId: string; refId: string; focus?: QuoteFocus; sourceBinding?: ReviewSource }) {
   const [value, setValue] = useState<Evidence>();
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
@@ -58,7 +59,7 @@ export function EvidenceLink({ taskId, refId, focus }: { taskId: string; refId: 
   useEffect(() => {
     setValue(undefined); setError(undefined); setBusy(false);
     return () => request.current?.abort();
-  }, [taskId, refId]);
+  }, [taskId, refId, sourceBinding?.command_seq]);
   const parts = value ? quoteParts(value, focus) : null;
   useEffect(() => {
     if (value && parts) highlight.current?.scrollIntoView({ block: "nearest" });
@@ -70,7 +71,7 @@ export function EvidenceLink({ taskId, refId, focus }: { taskId: string; refId: 
     request.current = controller;
     setValue(undefined); setError(undefined); setBusy(true);
     try {
-      const result = await api<Evidence>(`/api/agent/tasks/${encodeURIComponent(taskId)}/evidence?ref_id=${encodeURIComponent(refId)}`,
+      const result = await api<Evidence>(`/api/agent/tasks/${encodeURIComponent(taskId)}/evidence?ref_id=${encodeURIComponent(refId)}${sourceBinding ? `&source_command_seq=${sourceBinding.command_seq}` : ""}`,
         undefined, undefined, controller.signal);
       if (typeof result.text !== "string") throw new Error("原文窗口格式不正确，请重新读取。");
       if (!controller.signal.aborted) setValue(result);

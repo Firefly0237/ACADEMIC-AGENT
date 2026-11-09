@@ -1,6 +1,7 @@
 """Authenticated HTTP composition; root application explicitly mounts this router."""
 
 from collections.abc import Callable, Iterator
+from typing import Literal
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -135,6 +136,10 @@ def build_router(
     def update_brief(brief_id: UUID, body: BriefTurn, service: Service) -> dict:
         return invoke(brief(service).turn, brief_id, body)
 
+    @router.get("/briefs/{brief_id}/material-bibliography/{file_id}")
+    def material_bibliography(brief_id: UUID, file_id: UUID, service: Service) -> dict:
+        return invoke(brief(service).bibliography_source, brief_id, file_id)
+
     @router.post("/briefs/{brief_id}/resolutions")
     def resolve_brief(brief_id: UUID, body: BriefResolution, service: Service) -> dict:
         return invoke(brief(service).resolution, brief_id, body)
@@ -145,8 +150,14 @@ def build_router(
             brief(service).set_deleted, brief_id, body.operation_id, body.expected_revision, deleted=body.deleted
         )
 
+    @router.get("/school-profiles")
+    def school_profiles(service: Service) -> dict:
+        from citequest.research_v3.school_profiles import public_profiles
+        return public_profiles()
+
     @router.get("/briefs/{brief_id}/planning-input")
-    def planning(brief_id: UUID, service: Service, expected_revision: int = Query(ge=1)) -> dict:
-        return invoke(brief(service).planning, brief_id, expected_revision)
+    def planning(brief_id: UUID, service: Service, expected_revision: int = Query(ge=1),
+                 action: Literal["plan", "experiment"] = "plan") -> dict:
+        return invoke(brief(service).planning, brief_id, expected_revision, action)
 
     return router

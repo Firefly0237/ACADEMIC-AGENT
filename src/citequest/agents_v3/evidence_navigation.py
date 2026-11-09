@@ -4,9 +4,10 @@ from collections import OrderedDict
 from .contracts import AgentError, digest
 
 
-def navigation_frontier(evidence: list[dict], maximum: int) -> list[str]:
+def navigation_frontier(evidence: list[dict], maximum: int, *, capacity_limit: int = 8) -> list[str]:
     """Round-robin whole issued passages by document; never shorten source text."""
-    if type(maximum) is not int or not 1 <= maximum <= 8:
+    if (type(capacity_limit) is not int or capacity_limit not in {8, 20}
+            or type(maximum) is not int or not 1 <= maximum <= capacity_limit):
         raise AgentError("decisionrag_frontier_limit_invalid")
     groups: dict[str, list[str]] = OrderedDict()
     seen = set()

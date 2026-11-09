@@ -20,7 +20,7 @@ from citequest.index_v2 import models as index
 from citequest.index_v2.repository_v2 import VariantIndexRepository
 from citequest.index_v2.rows_v2 import canonical_sha
 from citequest.index_v2.source_readers import SourceReaders
-from citequest.index_v2.source_variants import CanonicalSourceUnit, DeniedSourceUnit, MetadataReference, NativeReference
+from citequest.index_v2.source_variants import CanonicalSourceUnit, DeniedSourceUnit, MetadataReference, NativeReference, UpdateReference
 from citequest.v2 import models as core
 from citequest.v2.domain import Actor, DomainError
 from citequest.v2.services import Catalog, normalize_identifier
@@ -31,6 +31,8 @@ from .catalog_snapshot import CatalogSnapshot, native_runtime_identity
 from .native import NativeHit
 from .schemas import EvidenceDTO, NativePDFAssetProfile, PaperDetail, PaperLocator, PaperSummary, SearchHit, SearchPage, SearchRequest, SimilarRequest, SourceCitation
 from .visibility import visible_unit
+from .query_projection import AUDIT_KEY, MaterialQueryProjection, snapshot_search_request
+from .citation import project_csl
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,21 @@ class SearchService:
     def _repo(self, db, actor):
         return VariantIndexRepository(Catalog(db, actor), store=self.store,
                                       policy_sha256=self.policy_sha256, evaluation_sha256=self.evaluation_sha256)
+
+    @staticmethod
+    def _paper_condition(paper):
+        return (index.IndexUnit.native_representation_id == paper.id if paper.kind == "native_representation" else
+            or_(index.IndexUnit.metadata_projection_id == UUID(paper.id), index.IndexUnit.update_observation_id == UUID(paper.id)))
+
+    @staticmethod
+    def _row_keys(db, generation, identifiers):
+        if generation.source_root_kind != "publication_snapshot":
+            return [canonical_sha({"snapshot_id": str(generation.snapshot_id), "projection_id": str(key)}) for key in identifiers]
+        rows = db.execute(select(index.IndexUnit.projection_id, index.IndexUnit.compilation["source_root_id"].as_string())
+            .where(index.IndexUnit.generation_id == generation.id, index.IndexUnit.projection_id.in_(identifiers))).all()
+        if len(rows) != len(identifiers) or any(root is None for _, root in rows):
+            raise DomainError("published_metadata_origin_row_key_missing", 409)
+        return [canonical_sha({"snapshot_id": root, "projection_id": str(key)}) for key, root in rows]
 
     def _validate_query(self, request):
         if self.query_token_counter is None:
@@ -91,8 +108,7 @@ class SearchService:
             if generation.tokenizer_profile_sha256 != self.query_tokenizer_profile_sha256:
                 raise DomainError("query_and_generation_tokenizer_profile_mismatch", 503)
             if selected_papers:
-                conditions = [(index.IndexUnit.native_representation_id == paper.id if paper.kind == "native_representation"
-                               else index.IndexUnit.metadata_projection_id == UUID(paper.id)) for paper in selected_papers]
+                conditions = [self._paper_condition(paper) for paper in selected_papers]
                 count = db.scalar(select(func.count()).select_from(index.IndexUnit).where(
                     index.IndexUnit.generation_id == generation.id, or_(*conditions), visible_unit(actor, generation.security_domain)))
                 if count != len(selected_papers):
@@ -163,8 +179,7 @@ class SearchService:
         expected_kind = "native_representation" if generation.catalog_name == "application_papers" else "metadata_projection"
         if any(paper.kind != expected_kind for paper in selected):
             raise DomainError("selected_paper_outside_pinned_catalog", 404)
-        conditions = [(index.IndexUnit.native_representation_id == paper.id if paper.kind == "native_representation"
-                       else index.IndexUnit.metadata_projection_id == UUID(paper.id)) for paper in selected]
+        conditions = [SearchService._paper_condition(paper) for paper in selected]
         count = db.scalar(select(func.count()).select_from(index.IndexUnit).where(
             index.IndexUnit.generation_id == generation.id, or_(*conditions), visible_unit(actor, generation.security_domain)))
         if count != len(selected):
@@ -242,19 +257,18 @@ class SearchService:
                     index.IndexUnit.generation_id == generation.id, ~visible_unit(actor, generation.security_domain)).limit(5001)))
                 if len(denied) > 5000:
                     raise DomainError("visibility_prefilter_exceeds_bounded_native_plan", 503)
-                excluded = [canonical_sha({"snapshot_id": str(generation.snapshot_id), "projection_id": str(unit_id)}) for unit_id in denied]
+                excluded = self._row_keys(db, generation, denied)
                 included = None
                 if request.selected_papers:
                     identities = {(paper.kind, paper.id) for paper in request.selected_papers}
                     if len(identities) != len(request.selected_papers):
                         raise DomainError("selected_papers_must_be_unique", 422)
-                    conditions = [(index.IndexUnit.native_representation_id == paper.id if paper.kind == "native_representation"
-                                   else index.IndexUnit.metadata_projection_id == UUID(paper.id)) for paper in request.selected_papers]
+                    conditions = [self._paper_condition(paper) for paper in request.selected_papers]
                     selected = list(db.scalars(select(index.IndexUnit.projection_id).where(
                         index.IndexUnit.generation_id == generation.id, or_(*conditions), visible_unit(actor, generation.security_domain))))
                     if len(selected) != len(identities):
                         raise DomainError("selected_paper_outside_current_catalog_or_access", 404)
-                    included = [canonical_sha({"snapshot_id": str(generation.snapshot_id), "projection_id": str(unit_id)}) for unit_id in selected]
+                    included = self._row_keys(db, generation, selected)
                 native_args = dict(collection=generation.collection_name, request=request,
                                    security_domain=generation.security_domain, excluded_row_keys=excluded,
                                    expected_proof=generation.server_proof, included_row_keys=included)
@@ -330,8 +344,7 @@ class SearchService:
         if request.filters.year_to is not None:
             query = query.where(index.IndexUnit.projection["year"].as_integer() <= request.filters.year_to)
         if request.selected_papers:
-            query = query.where(or_(*[(index.IndexUnit.native_representation_id == paper.id if paper.kind == "native_representation"
-                                       else index.IndexUnit.metadata_projection_id == UUID(paper.id)) for paper in request.selected_papers]))
+            query = query.where(or_(*[self._paper_condition(paper) for paper in request.selected_papers]))
         units = list(db.scalars(query.distinct().order_by(index.IndexUnit.projection_id).limit(request.candidate_limit)))
         # Pick the real first literal chunk for each selected paper. The field
         # match is metadata, so no fabricated full-text match score is assigned.
@@ -374,7 +387,7 @@ class SearchService:
             summaries = self._summaries(db, [unit for _, _, unit in rows])
             chosen = [(hit, chunk, unit) for hit, chunk, unit in rows if hit.ordinal > after][:snapshot.page_size]
             more = bool(chosen and any(hit.ordinal > chosen[-1][0].ordinal for hit, _, _ in rows))
-            request = SearchRequest.model_validate(snapshot.request)
+            request = snapshot_search_request(snapshot.request)
             facets = {"year": dict(Counter(str(item.year) if item.year is not None else "unknown" for item in summaries.values())),
                       "coverage": dict(Counter(item.coverage for item in summaries.values()))}
             return SearchPage(snapshot_id=snapshot.id, generation_id=generation.id, epoch=snapshot.epoch,
@@ -398,9 +411,10 @@ class SearchService:
             dto = unit.projection.get("original_source_dto", {})
             work = works.get(unit.work_id)
             native = unit.source_reference_kind == "native_representation"
-            reference_id = unit.native_representation_id if native else str(unit.metadata_projection_id)
+            observed = unit.source_reference_kind == "update_observation"
+            reference_id = unit.native_representation_id if native else str(unit.update_observation_id if observed else unit.metadata_projection_id)
             source = members.get(reference_id)
-            result[unit.projection_id] = PaperSummary(paper=PaperLocator(kind=unit.source_reference_kind, id=reference_id),
+            result[unit.projection_id] = PaperSummary(paper=PaperLocator(kind="native_representation" if native else "metadata_projection", id=reference_id),
                 title=work.title if native and work is not None else dto.get("title"), abstract=dto.get("abstract"),
                 authors=work.authors if work is not None else None, year=unit.projection.get("year"),
                 work_id=unit.work_id, work_version_id=unit.work_version_id,
@@ -408,7 +422,7 @@ class SearchService:
                 source=SourceCitation(source_namespace=unit.source_namespace, native_id=unit.native_id,
                     source_revision=unit.source_revision, projection_sha256=unit.projection_sha256,
                     source_pointer_sha256=unit.source_pointer_sha256),
-                source_url=source.source_url if source is not None else None,
+                source_url=source.source_url if source is not None else (dto.get("locator") or {}).get("source_url") if observed else None,
                 metadata_revision=work.metadata_revision if work is not None else None)
         return result
 
@@ -435,7 +449,8 @@ class SearchService:
             """One shared original-source barrier for paper and chunk retrieval."""
             repo = self._repo(db, actor)
             reference = (NativeReference(native_representation_id=unit.native_representation_id)
-                         if unit.source_reference_kind == "native_representation" else MetadataReference(metadata_projection_id=unit.metadata_projection_id))
+                         if unit.source_reference_kind == "native_representation" else UpdateReference(update_observation_id=unit.update_observation_id)
+                         if unit.source_reference_kind == "update_observation" else MetadataReference(metadata_projection_id=unit.metadata_projection_id))
             current = repo.readers.read(repo.readers.root(generation), reference)
             if isinstance(current, DeniedSourceUnit):
                 raise DomainError("source_currently_denied", 403)
@@ -445,15 +460,28 @@ class SearchService:
                     or current.literal_text[start:end] != payload["text"]
                     or hashlib.sha256(payload["text"].encode()).hexdigest() != payload["source_text_sha256"]):
                 raise DomainError("evidence_source_hash_or_span_mismatch", 409)
-            summary = self._summaries(db, [unit])[unit.projection_id]
+            # Citation identity is already pinned in this IndexUnit. Hydrating
+            # paper display metadata here adds two unrelated queries per chunk.
+            native = unit.source_reference_kind == "native_representation"
+            source_ref = PaperLocator(kind="native_representation" if native else "metadata_projection",
+                id=unit.native_representation_id if native else str(unit.update_observation_id if unit.source_reference_kind == "update_observation" else unit.metadata_projection_id))
+            source = SourceCitation(source_namespace=unit.source_namespace, native_id=unit.native_id,
+                source_revision=unit.source_revision, projection_sha256=unit.projection_sha256,
+                source_pointer_sha256=unit.source_pointer_sha256)
             return EvidenceDTO(ref_id=ref_id, snapshot_id=snapshot_id, generation_id=generation.id, epoch=epoch,
-                source_ref=summary.paper, source=summary.source, source_sha256=payload["source_text_sha256"],
+                source_ref=source_ref, source=source, source_sha256=payload["source_text_sha256"],
                 unit_text_sha256=current.unit_text_sha256, text=payload["text"], span_start=start, span_end=end,
                 coordinate_system=current.coordinate_system, work_id=current.work_id, work_version_id=current.work_version_id,
-                coverage=summary.coverage)
+                coverage="native_literal" if native else "metadata")
 
     def _current_source(self, db, actor, locator):
             if locator.kind == "metadata_projection":
+                from .metadata_origin import published_observation
+                observed = published_observation(db, self._repo(db, actor), UUID(locator.id))
+                if observed is not None:
+                    if isinstance(observed[0], DeniedSourceUnit):
+                        raise DomainError("source_currently_denied", 403)
+                    return observed
                 projection = db.get(data.SourceProjection, UUID(locator.id))
                 source_row = db.get(data.SourceRow, projection.source_row_id) if projection is not None else None
                 reference = MetadataReference(metadata_projection_id=UUID(locator.id))
@@ -481,8 +509,11 @@ class SearchService:
     @staticmethod
     def _summary_unit(current, locator):
             # A transient hydration DTO, not a fabricated SQL IndexUnit.
+            observed = isinstance(current.source_reference, UpdateReference)
             return SimpleNamespace(projection_id=current.source_unit_id, projection=current.model_dump(mode="json"),
-                source_reference_kind=locator.kind, metadata_projection_id=current.source_unit_id if locator.kind == "metadata_projection" else None,
+                source_reference_kind="update_observation" if observed else locator.kind,
+                update_observation_id=current.source_unit_id if observed else None,
+                metadata_projection_id=current.source_unit_id if locator.kind == "metadata_projection" and not observed else None,
                 native_representation_id=locator.id if locator.kind == "native_representation" else None,
                 work_id=current.work_id, work_version_id=current.work_version_id,
                 source_namespace=current.root.source_namespace, native_id=current.native_id,
@@ -494,9 +525,19 @@ class SearchService:
             current, snapshot = self._current_source(db, actor, locator)
             summary = self._summaries(db, [self._summary_unit(current, locator)])[current.source_unit_id]
             pdf_license, pdf_is_unmodified = None, None
+            citation_metadata, verified_paper = {}, False
+            if isinstance(current.source_reference, UpdateReference):
+                citation_metadata = dict(current.original_source_dto.get("metadata_payload") or {})
             if locator.kind == "native_representation":
                 member, source, blob = self._pdf_source(db, actor, current, snapshot, locator, require_asset_access=False)
                 resolution = db.get(data.SourceResolution, member.resolution_id, populate_existing=True)
+                if resolution is not None:
+                    # _current_source revalidates the sealed resolution against
+                    # its original publisher chain; _pdf_source pins this member.
+                    citation_metadata = dict(resolution.proof.get("attribution") or {})
+                    verified_paper = (resolution.state == "paper_identity_verified"
+                        and resolution.representation_id == locator.id
+                        and (current.original_source_dto.get("source_reference") or {}).get("source_kind") == "paper")
                 attribution_url = (resolution.proof.get("attribution") or {}).get("source_url") if resolution is not None else None
                 if self._official_acl_url(attribution_url):
                     summary.source_url = attribution_url
@@ -509,11 +550,16 @@ class SearchService:
                     # A verified original-site link does not reclassify the
                     # importer-owned raw PDF as a public product blob grant.
                     summary.pdf_url = source.source_url
+            csl, citation_missing = project_csl(identifier=locator.kind + ":" + locator.id,
+                title=summary.title, authors=summary.authors, year=summary.year, url=summary.source_url,
+                metadata=citation_metadata, verified_paper=verified_paper)
             return PaperDetail(**summary.model_dump(), source_snapshot_id=snapshot.id,
                 pdf_license=pdf_license, pdf_is_unmodified=pdf_is_unmodified,
                 literal_text_available=current.searchable_text_present, coordinate_system=current.coordinate_system,
                 links_status="source_provided" if summary.source_url else "not_in_source",
-                citation_status="complete" if summary.title and summary.authors and summary.year else "incomplete_metadata")
+                citation_status="complete" if csl is not None and not citation_missing else "incomplete_metadata",
+                csl=csl, citation_missing_fields=citation_missing or None,
+                metadata_observation=getattr(snapshot, "metadata_observation", None))
 
     def _can_read_pdf(self, db, actor, source):
         profile = self.native_pdf_asset_profile
@@ -635,15 +681,28 @@ class SearchService:
         result = self.search(actor, SearchRequest(q=detail.title, mode=request.mode,
             catalog="application_papers" if locator.kind == "native_representation" else "standard_metadata",
             page_size=min(request.page_size, request.candidate_limit), candidate_limit=request.candidate_limit))
-        # Exclusion must be persisted so later cursor pages cannot reintroduce it.
+        return self.exclude_similarity_source(actor, result.snapshot_id, locator=locator, work_id=detail.work_id)
+
+    def exclude_similarity_source(self, actor: Actor, snapshot_id: UUID, *, locator: PaperLocator | None = None,
+                                  work_id: UUID | None = None, projection: MaterialQueryProjection | None = None) -> SearchPage:
+        """Remove the source from all persisted pages and bind private query provenance."""
         with self.factory.begin() as db:
+            snapshot, _, _ = self._snapshot(db, actor, snapshot_id)
+            if projection is not None:
+                if projection.query != snapshot.request["q"] or projection.source.work_id != (str(work_id) if work_id else None):
+                    raise DomainError("material_similarity_snapshot_query_changed", 409)
+                snapshot.request = {**snapshot.request, AUDIT_KEY: projection.model_dump(mode="json")}
+                snapshot.query_sha256 = canonical_sha(snapshot.request)
             rows = db.execute(select(m.SearchSnapshotHit, index.IndexUnit).join(index.IndexUnit,
                 (index.IndexUnit.generation_id == m.SearchSnapshotHit.generation_id) &
                 (index.IndexUnit.projection_id == m.SearchSnapshotHit.projection_id)).where(
-                m.SearchSnapshotHit.snapshot_id == result.snapshot_id)).all()
+                m.SearchSnapshotHit.snapshot_id == snapshot_id)).all()
+            removed = 0
             for hit, unit in rows:
-                same = unit.projection_id == (UUID(locator.id) if locator.kind == "metadata_projection" else None)
-                if same or unit.native_representation_id == locator.id or (detail.work_id is not None and unit.work_id == detail.work_id):
+                same = locator is not None and (unit.projection_id == (UUID(locator.id) if locator.kind == "metadata_projection" else None)
+                    or unit.native_representation_id == locator.id)
+                if same or (work_id is not None and unit.work_id == work_id):
                     db.delete(hit)
-                    db.get(m.SearchSnapshot, result.snapshot_id).candidate_count -= 1
-        return self.page(actor, result.snapshot_id)
+                    removed += 1
+            snapshot.candidate_count -= removed
+        return self.page(actor, snapshot_id)

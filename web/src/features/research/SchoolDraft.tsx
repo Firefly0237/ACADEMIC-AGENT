@@ -1,10 +1,12 @@
 import { useId, type ReactNode } from "react";
 import { Markdown } from "../../Markdown";
 import { ExportPanel } from "./ExportPanel";
+import type { ReviewSource } from "./review";
 import "./research.css";
 
 export type SchoolDraftDocument = {
   title: string;
+  profile?: { id: string; source_url: string };
   sections: Array<{ section_id: string; blocks: Array<{ id: string; kind: string; text: string; source_aliases: string[] }> }>;
   section_specs: Array<{ id: string; title: string }>;
   source_aliases: Record<string, string[]>;
@@ -12,12 +14,13 @@ export type SchoolDraftDocument = {
     issued?: { "date-parts": number[][] }; URL?: string }> };
 };
 const blockKinds: Record<string,string> = { evidence: "文献依据", proposal: "拟议设计", user_fact: "已确认要求", limitation: "限制与未知" };
-export function SchoolDraft({ taskId, document, evidence, allowExport = true }: { taskId: string; document: SchoolDraftDocument; evidence: (ref: string) => ReactNode; allowExport?: boolean }) {
+export function SchoolDraft({ taskId, document, evidence, allowExport = true, sourceBinding }: { taskId: string; document: SchoolDraftDocument; evidence: (ref: string) => ReactNode; allowExport?: boolean; sourceBinding?: ReviewSource }) {
   const prefix = useId().replaceAll(":", "");
   return <section className="school-draft" aria-label="学校研究计划书草案">
     <h2>{document.title}</h2>
-    <p className="notice">研究计划草稿 · 实验尚未执行 · 非已获学校批准的提交稿。格式依据上交计算机硕士 2024 级公开模板。</p>
+    <p className="notice">研究计划草稿 · 实验尚未执行。格式依据上交计算机硕士 {document.profile?.id.includes("2025") ? "2025" : "2024"} 级公开模板。</p>
     <details><summary>格式依据与适用范围</summary>
+      {document.profile?.source_url && <p><a href={document.profile.source_url} target="_blank" rel="noreferrer">查看对应年级官方要求 ↗</a></p>}
       <p className="muted">当前稿件参考上述特定年级公开模板，不代表任意学院或专业的通用格式要求。具体提交要求以所属学院适用规定为准。</p>
     </details>
     <nav className="school-contents" aria-label="计划书章节目录"><strong>章节</strong><ol>{document.section_specs.map(spec =>
@@ -43,6 +46,6 @@ export function SchoolDraft({ taskId, document, evidence, allowExport = true }: 
         {(document.source_aliases[item.id] || []).map(ref => <div key={ref}>{evidence(ref)}</div>)}
       </li>)}</ol>
     </section>
-    {allowExport && <ExportPanel taskId={taskId} />}
+    {allowExport && <ExportPanel key={sourceBinding ? `${sourceBinding.command_seq}:${sourceBinding.document_sha256}` : "current"} taskId={taskId} sourceBinding={sourceBinding} />}
   </section>;
 }

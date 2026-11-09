@@ -126,6 +126,7 @@ class MaterialProcessor:
             self.chunk_profile_key,
             "runtime/s04/tokenizer-profile.json",
             "src/citequest/materials_v2/worker.py",
+            "src/citequest/materials_v2/parser_profile.py",
             "src/citequest/materials_v2/isolation.py",
             "src/citequest/materials_v2/provenance.py",
             "src/citequest/materials_v2/chunking.py",

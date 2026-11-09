@@ -10,6 +10,7 @@ import re
 
 from .contracts import AgentError, digest
 from .model_contracts import validated_model_alias
+from .qa_adaptive_contracts import SUPPLEMENT_ROLE, SUPPLEMENT_SCHEMA_NAME
 from .json_review import VERSION as JSON_VERSION
 from .json_review import compile_json_review, normalize_json_review, recorded_json_review
 from .json_review import JSON2_VERSION, compile_json_submission, normalize_json_submission, recorded_json_submission
@@ -30,6 +31,7 @@ PROFILE_KEY = "structured_output_protocol"
 NULLABLE_CONTRACT = "undocumented_null_extension_requires_probe"
 ROLE_FUNCTIONS = {"plan": "submit_plan", "author": "submit_answer", "review": "submit_review"}
 ROLE_SCHEMAS = {role: "citequest_qa5_" + role for role in ROLE_FUNCTIONS}
+ROLE_SCHEMAS[SUPPLEMENT_ROLE] = SUPPLEMENT_SCHEMA_NAME
 
 
 def submission_role(profile: dict, request: dict, logical_key: str) -> str | None:
@@ -53,11 +55,15 @@ def submission_role(profile: dict, request: dict, logical_key: str) -> str | Non
                 and profile.get("answer_revision_protocol") != "jsonpatch1"
             or validated_model_alias(profile) != "deepseek-v4-pro"):
         raise AgentError("typed_submission_Task_profile_not_supported")
-    match = (re.fullmatch(r".+:qa5:(plan|author|review):(0|[1-9][0-9]*)(?::wire-recovery:1)?", logical_key)
+    match = (re.fullmatch(r".+:qa5:(plan|author|review|supplement_plan):(0|[1-9][0-9]*)(?::wire-recovery:1)?", logical_key)
         if isinstance(logical_key, str) else None)
     if match is None:
         raise AgentError("typed_submission_role_key_invalid")
     role = match.group(1)
+    if role == SUPPLEMENT_ROLE:
+        from .product_profiles import qa_retrieval_protocol
+        if selected != JSON2_VERSION or qa_retrieval_protocol({"kind": "qa", "profile": profile}) != "adaptive1":
+            raise AgentError("typed_submission_supplement_protocol_required")
     if role == "review" and profile.get("review_api_protocol") not in {JSON_VERSION, JSON2_VERSION}:
         tools = request.get("tools")
         if (request.get("text") is not None or not isinstance(tools, list) or len(tools) != 1
@@ -82,7 +88,8 @@ def compile_submission(profile: dict, request: dict, logical_key: str, *, fixtur
         return compile_review_request(request, fixture=fixture, protocol=profile.get("review_api_protocol", "chat-strict1"))
     if profile.get(PROFILE_KEY) == JSON2_VERSION:
         maximum = 65536 if profile["profile_id"] == "qa-v9" else 8192
-        return compile_json_submission(request, role, fixture=fixture, maximum=maximum)
+        return compile_json_submission(request, role, fixture=fixture, maximum=maximum,
+            adaptive=role == SUPPLEMENT_ROLE)
     if role == "review" and profile.get("review_api_protocol") == JSON_VERSION:
         return compile_json_review(request, fixture=fixture)
     inputs = request.get("input")
@@ -124,7 +131,7 @@ def normalize_submission(profile: dict, request: dict, logical_key: str, raw_pri
     if role is None:
         return normalize_chat_response(raw_private_chat, protocol=profile.get("review_api_protocol", "chat-strict1"))
     if profile.get(PROFILE_KEY) == JSON2_VERSION:
-        return normalize_json_submission(raw_private_chat, role)
+        return normalize_json_submission(raw_private_chat, role, adaptive=role == SUPPLEMENT_ROLE)
     if role == "review" and profile.get("review_api_protocol") == JSON_VERSION:
         return normalize_json_review(raw_private_chat)
     response = normalize_chat_response(raw_private_chat, protocol=VERSION, function_name=ROLE_FUNCTIONS[role])
@@ -143,7 +150,7 @@ def recorded_submission(profile: dict, request: dict, logical_key: str, raw: dic
     if role is None:
         raise AgentError("typed_submission_explicit_protocol_required")
     if profile.get(PROFILE_KEY) == JSON2_VERSION:
-        return recorded_json_submission(raw, private, http_status, role)
+        return recorded_json_submission(raw, private, http_status, role, adaptive=role == SUPPLEMENT_ROLE)
     if role == "review" and profile.get("review_api_protocol") == JSON_VERSION:
         return recorded_json_review(raw, private, http_status)
     return recorded_chat_response(raw, private, http_status, protocol=VERSION, function_name=ROLE_FUNCTIONS[role])

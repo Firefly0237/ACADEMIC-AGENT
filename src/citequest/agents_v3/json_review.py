@@ -10,6 +10,7 @@ import re
 
 from .contracts import AgentError, canonical, digest
 from .strict_chat import CompiledChatReview, ENVELOPE_GATE_KEY
+from .qa_adaptive_contracts import SUPPLEMENT_ROLE
 
 VERSION = "chat-json1"
 COMPILER = "deepseek-chat-json-object/1"
@@ -30,9 +31,14 @@ def compile_json_review(request: dict, *, fixture: bool = False) -> CompiledChat
         compiler=COMPILER, structured="chat-functions1", maximum=4096, effort="none")
 
 
-def compile_json_submission(request: dict, role: str, *, fixture: bool = False, maximum: int = 8192) -> CompiledChatReview:
-    if role not in {"plan", "author", "review"}:
+def _require_submission_role(role: str, *, adaptive: bool) -> None:
+    if role not in {"plan", "author", "review"} and not (adaptive is True and role == SUPPLEMENT_ROLE):
         raise AgentError("chat_json_submission_role_invalid")
+
+
+def compile_json_submission(request: dict, role: str, *, fixture: bool = False,
+                            maximum: int = 8192, adaptive: bool = False) -> CompiledChatReview:
+    _require_submission_role(role, adaptive=adaptive)
     if type(maximum) is not int or maximum not in {8192, 65536}:
         raise AgentError("chat_json_submission_output_contract_invalid")
     return _compile_json_object(request, role, fixture=fixture, protocol=JSON2_VERSION,
@@ -156,10 +162,9 @@ def _reasoning_attestation(response: dict, role: str) -> dict:
         "characters": len(reasoning), "utf8_bytes": len(encoded), "sha256": digest(encoded)}
 
 
-def normalize_json_submission(response: dict, role: str, *, require_gate: bool = True) -> dict:
+def normalize_json_submission(response: dict, role: str, *, require_gate: bool = True, adaptive: bool = False) -> dict:
     """Accept private reasoning only for the explicitly versioned review role."""
-    if role not in {"plan", "author", "review"}:
-        raise AgentError("chat_json_submission_role_invalid")
+    _require_submission_role(role, adaptive=adaptive)
     if not isinstance(response, dict):
         raise AgentError("chat_json_response_not_object")
     if require_gate:
@@ -222,7 +227,8 @@ def normalize_json_submission(response: dict, role: str, *, require_gate: bool =
         "_cq_review_api_protocol": JSON2_VERSION}
 
 
-def recorded_json_submission(raw: dict, private: dict, http_status: int, role: str) -> dict:
+def recorded_json_submission(raw: dict, private: dict, http_status: int, role: str, *, adaptive: bool = False) -> dict:
+    _require_submission_role(role, adaptive=adaptive)
     code = None
     if ENVELOPE_GATE_KEY in raw or REASONING_KEY in raw:
         code = "chat_json_reserved_receive_gate"
@@ -230,7 +236,7 @@ def recorded_json_submission(raw: dict, private: dict, http_status: int, role: s
         code = "provider_http_error_with_known_usage"
     else:
         try:
-            normalize_json_submission(raw, role, require_gate=False)
+            normalize_json_submission(raw, role, require_gate=False, adaptive=adaptive)
         except AgentError as error:
             code = error.code
     try:

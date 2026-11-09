@@ -83,7 +83,7 @@ class UpdateService:
     def reserve_fetch(self, window_id: UUID, request: dict) -> dict:
         row = self.window(window_id, writing=True)
         config = WindowInput.model_validate_json(json.dumps({**{key: value for key, value in row.config.items() if key in WindowInput.model_fields}, "client_operation_id": str(UUID(int=0))}))
-        validate_request(config, request)
+        validate_request(config, request, row.cursor)
         if row.cursor.get("pending_request"):
             raise DomainError("source_pending_attempt_requires_reconciliation_not_blind_retry", 409)
         if row.state in {"observed", "failed", "cancelled", "partial"}:
@@ -126,6 +126,8 @@ class UpdateService:
             return parse_atom(data, expected_start=request["start"], maximum_records=request["page_size"])
         if request["kind"] == "oai_managed":
             return parse_oai(data, expected_identifier=request["native_id"])
+        if request["kind"] == "oai_list":
+            return parse_oai(data, expected_verb="ListRecords")
         if request["kind"] == "crossref_known":
             metadata = parse_crossref(data, plan_reference(request["native_id"]), request["url"])
             record = {**metadata, "native_id": request["native_id"], "source_revision": hashlib.sha256(data).hexdigest(),
@@ -188,6 +190,16 @@ class UpdateService:
         self.db.add(page)
         self.db.flush()
         records = (parsed or {}).get("records", [])
+        if request["kind"] == "oai_list":
+            from datetime import date
+            from .oai_cursor import state_for
+            config = WindowInput.model_validate_json(json.dumps({**{key: value for key, value in row.config.items() if key in WindowInput.model_fields}, "client_operation_id": str(UUID(int=0))}))
+            fixed = state_for(config, row.cursor)
+            for record in records:
+                stamp = record["datestamp"]
+                day = date.fromisoformat(stamp) if len(stamp) == 10 else timestamp(stamp).astimezone(UTC).date()
+                if not fixed.lower <= day <= fixed.upper:
+                    raise DomainError("OAI_record_outside_fixed_day_window", 409)
         if parsed and parsed.get("error") == "idDoesNotExist":
             records = [{"native_id": request["native_id"], "state": "quarantine_missing", "source_revision": None,
                         "record_ordinal": 0, "title": None, "abstract": None, "year": None,
@@ -200,7 +212,7 @@ class UpdateService:
         for record in records:
             ordinal = record["record_ordinal"]
             is_error = parsed.get("error") == "idDoesNotExist"
-            locator = ProtocolLocator(kind="oai_error" if is_error else "atom_entry" if request["kind"] == "atom_page" else "oai_record" if request["kind"] == "oai_managed" else "crossref_work",
+            locator = ProtocolLocator(kind="oai_error" if is_error else "atom_entry" if request["kind"] == "atom_page" else "oai_record" if request["kind"] in {"oai_managed", "oai_list"} else "crossref_work",
                       raw_response_sha256=blob.sha256, record_ordinal=None if is_error else ordinal, identifier=record["native_id"], source_url=request["url"],
                       coordinate_system="parsed_XML_or_JSON_record_identifier_and_ordinal_not_PDF_or_byte_offsets").model_dump(mode="json")
             metadata = {**record, "title": record.get("title"), "abstract": record.get("abstract"), "year": record.get("year")}
@@ -249,8 +261,17 @@ class UpdateService:
         row.page_count += 1
         row.record_count += len(records)
         row.active_seconds = max(row.active_seconds, (datetime.now(UTC) - timestamp(row.cursor["budget_started_at"])).total_seconds())
+        if request["kind"] == "oai_list" and parsed is not None and error is None and accepted:
+            from .oai_cursor import state_for
+            config = WindowInput.model_validate_json(json.dumps({**{key: value for key, value in row.config.items() if key in WindowInput.model_fields}, "client_operation_id": str(UUID(int=0))}))
+            state = state_for(config, row.cursor)
+            state.accept(parsed)
+            if len(state.records) > config.maximum_records:
+                raise DomainError("OAI_distinct_record_cap", 409)
+            row.cursor = {**row.cursor, "oai": state.cursor()}
         row.cursor = {**row.cursor, "pending_request": None, "pending_sequence": None}
-        if error or not accepted or (parsed and parsed.get("error") not in {None, "idDoesNotExist"}):
+        allowed_errors = {None, "idDoesNotExist"} | ({"badResumptionToken", "noRecordsMatch"} if request["kind"] == "oai_list" else set())
+        if error or not accepted or (parsed and parsed.get("error") not in allowed_errors):
             row.state, row.error = "partial", {"code": error or "source_HTTP_or_protocol_error", "status": response.get("status"), "parsed_error": (parsed or {}).get("error")}
         return {"page_id": str(page.id), "records": len(records), "state": row.state, "replayed": False}
 
@@ -264,7 +285,17 @@ class UpdateService:
         pages = list(self.db.scalars(select(m.UpdatePage).where(m.UpdatePage.window_id == window_id).order_by(m.UpdatePage.sequence)))
         if not pages or any(not p.body_complete or p.parsed is None for p in pages):
             raise DomainError("incomplete_source_pages", 409)
-        if row.source_namespace == "arxiv":
+        if row.config.get("protocol_profile") == "oai-fixed-window/1":
+            from .oai_enumeration import OAIEnumeration
+            state = OAIEnumeration.restore(row.cursor.get("oai", {}))
+            if not state.finished or state.awaiting_response:
+                raise DomainError("complete_OAI_fixed_window_required", 409)
+            complete_pages = [p for p in pages if p.phase == "oai_list" and p.request.get("oai_epoch") == state.restarts]
+            if not complete_pages:
+                raise DomainError("OAI_successful_epoch_pages_required", 409)
+            eligible_ids = set(state.records) | set(row.managed_ids)
+            managed = {p.request["native_id"] for p in pages if p.phase == "oai_managed"}
+        elif row.source_namespace == "arxiv":
             discovery = [p.parsed for p in pages if p.phase == "atom_page"]
             head = [p.parsed for p in pages if p.phase == "atom_head_recheck"]
             if len(head) != 1:
@@ -283,6 +314,10 @@ class UpdateService:
                      m.SourceDenial.source_namespace == row.source_namespace, m.SourceDenial.active.is_(True))))
         current = {}
         for obs in observations:
+            if row.config.get("protocol_profile") == "oai-fixed-window/1":
+                page = next(p for p in pages if p.id == obs.page_id)
+                if page.phase == "oai_list" and page.request.get("oai_epoch") != state.restarts:
+                    continue
             if (obs.native_id in eligible_ids and obs.native_id not in denied and obs.work_id
                     and obs.metadata_payload.get("title") and obs.state != "fence_only_observation" and not obs.state.startswith("quarantine_")):
                 key = (obs.source_namespace, obs.native_id)
@@ -297,6 +332,9 @@ class UpdateService:
                    "managed_ids": row.managed_ids, "state": "observed_window_complete", "status_asof_proofs": 0,
                    "current_status_confirmed": False, "publication_eligible": False, "complete_global_or_latest_sync_claimed": False}
         payload["membership_scope"] = "this_bounded_window_observations_not_full_corpus"
+        if row.config.get("protocol_profile") == "oai-fixed-window/1":
+            payload.update(protocol_profile="oai-fixed-window/1", observed_watermark=row.upper_bound.isoformat(),
+                successful_OAI_epoch=state.restarts, OAI_requests_cumulative=state.requests)
         seal_id = uuid5(window_id, "observed-seal")
         self.db.add(m.UpdateSeal(id=seal_id, window_id=window_id, security_domain=row.security_domain, source_namespace=row.source_namespace,
                     scope_sha256=row.scope_sha256, membership_sha256=membership_sha, payload=payload, seal_sha256=digest(payload), publication_eligible=False))

@@ -13,6 +13,8 @@ import {
   type BriefField,
   type BriefSnapshot,
   type PlanningInput,
+  type MaterialBibliography,
+  type SchoolProfiles,
 } from "./types";
 import "./research.css";
 
@@ -20,7 +22,17 @@ const Markdown = lazy(() =>
   import("../../Markdown").then((module) => ({ default: module.Markdown })),
 );
 type Edit = { value: string; intent: "set" | "revise" | "unknown" | "clear" };
+type BibliographyEdit = {
+  file_id: string; file_sha256: string; representation_id: string; title: string;
+  authors: string; year: string; doi: string; source_url: string; confirmed: boolean;
+};
+type BibliographySource = {
+  source: { file_id: string; file_sha256: string; representation_id: string; material_name: string };
+  bibliography: MaterialBibliography | null;
+  source_matches_confirmation: boolean;
+};
 const id = () => crypto.randomUUID();
+const LEGACY_SCHOOL_PROFILE = "sjtu-scs-2024-master-cn-capacity-demo/3";
 
 export function BriefEditor({
   identity,
@@ -33,6 +45,11 @@ export function BriefEditor({
 }: BriefEditorProps) {
   const [snapshot, setSnapshot] = useState(initial);
   const [edits, setEdits] = useState<Partial<Record<BriefField, Edit>>>({});
+  const [bibliographyEdits, setBibliographyEdits] = useState<Record<string, BibliographyEdit>>({});
+  const [schoolProfiles, setSchoolProfiles] = useState<SchoolProfiles | null>(null);
+  const [schoolProfileEdit, setSchoolProfileEdit] = useState<string>();
+  const [schoolProfileError, setSchoolProfileError] = useState("");
+  const [schoolProfileReload, setSchoolProfileReload] = useState(0);
   const [latest, setLatest] = useState<BriefSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -44,16 +61,34 @@ export function BriefEditor({
   } | null>(null);
   const owner = useRef(identity.owner_id);
   owner.current = identity.owner_id;
+  const bibliographyScope = useRef("");
+  bibliographyScope.current = `${identity.owner_id}:${projectId}:${initial?.brief.id || ""}`;
   useEffect(() => {
     setSnapshot(initial);
     setEdits({});
+    setBibliographyEdits({});
+    setSchoolProfileEdit(undefined);
     setLatest(null);
     setError("");
     setNotice("");
     pending.current = null;
   }, [initial?.brief.id, projectId, identity.owner_id]);
 
-  const dirty = Object.keys(edits).length > 0;
+  useEffect(() => {
+    const controller = new AbortController();
+    setSchoolProfiles(null);
+    setSchoolProfileError("");
+    void workspaceRequest<SchoolProfiles>(identity, `${WORKSPACE}/school-profiles`, { signal: controller.signal })
+      .then(value => {
+        if (!controller.signal.aborted) setSchoolProfiles(value);
+      })
+      .catch(cause => {
+        if (!controller.signal.aborted) setSchoolProfileError(workspaceError(cause));
+      });
+    return () => controller.abort();
+  }, [identity.owner_id, identity.csrf, schoolProfileReload]);
+
+  const dirty = Object.keys(edits).length > 0 || Object.keys(bibliographyEdits).length > 0 || schoolProfileEdit !== undefined;
   useEffect(() => {
     if (
       initial &&
@@ -66,6 +101,15 @@ export function BriefEditor({
     }
   }, [initial, snapshot, dirty]);
   const document = snapshot?.brief;
+  const savedSchoolProfileId = document?.school_profile_id || (snapshot ? LEGACY_SCHOOL_PROFILE : schoolProfiles?.default_id);
+  const selectedSchoolProfileId = schoolProfileEdit ?? savedSchoolProfileId;
+  const selectedSchoolProfile = schoolProfiles?.profiles.find(profile => profile.id === selectedSchoolProfileId);
+  const schoolProfileLabel = (profileId: string | null | undefined) =>
+    schoolProfiles?.profiles.find(profile => profile.id === (profileId || LEGACY_SCHOOL_PROFILE))?.label || profileId || "原有学校格式";
+  const missingBibliography = snapshot?.readiness.missing_material_bibliography || [];
+  const experimentReadiness = snapshot?.readiness.experiment_readiness;
+  const materialReferences = document?.selected_sources.filter(source => source.kind === "material_file"
+    && !document.draft_source_ids?.includes(source.id)) || [];
   const questions = snapshot?.readiness.questions || [
     {
       field: "topic" as BriefField,
@@ -101,7 +145,14 @@ export function BriefEditor({
   }
 
   async function showError(cause: unknown) {
-    setError(workspaceError(cause));
+    const bibliographyMessages: Record<string, string> = {
+      research_material_bibliography_required: "请先在上传参考文献区确认所列材料的题名、作者与年份，再开始研究计划。",
+      material_bibliography_confirmation_required: "请完整填写题名、作者与有效年份，并明确勾选书目确认。",
+      material_bibliography_source_changed: "材料解析版本已变化。当前填写仍保留，请重新读取这份材料并确认题录。",
+      material_not_readable: "这份材料尚未解析就绪。请在材料详情完成解析后再确认题录。",
+      material_not_in_research_reference_scope: "这份材料不在当前参考文献范围内；研究草稿不能自动作为文献引用。",
+    };
+    setError(cause instanceof APIError ? bibliographyMessages[cause.code] || workspaceError(cause) : workspaceError(cause));
     if (cause instanceof APIError && cause.status === 409 && document) {
       try {
         const server = await workspaceRequest<BriefSnapshot>(
@@ -121,7 +172,7 @@ export function BriefEditor({
     setLatest(null);
     setError("");
     pending.current = null;
-    if (clear) setEdits({});
+    if (clear) { setEdits({}); setBibliographyEdits({}); setSchoolProfileEdit(undefined); }
     onSaved?.(value);
   }
 
@@ -131,10 +182,25 @@ export function BriefEditor({
       intent: edit!.intent,
       ...(edit!.intent === "clear" ? {} : { value: edit!.value }),
     }));
-    if (snapshot && !patches.length) return snapshot;
+    const material_bibliography: Record<string, MaterialBibliography> = {};
+    for (const [key, entry] of Object.entries(bibliographyEdits)) {
+      const authors = entry.authors.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+      const year = Number(entry.year);
+      if (!entry.title.trim() || !authors.length || authors.length > 100 || authors.some(author => author.length > 500) || !Number.isSafeInteger(year)
+        || year < 1000 || year > 2200 || !entry.confirmed)
+        throw new APIError("material_bibliography_confirmation_required", 400);
+      material_bibliography[key] = { file_id: entry.file_id, file_sha256: entry.file_sha256,
+        representation_id: entry.representation_id, title: entry.title.trim(), authors, year, confirmed: true,
+        provenance: "user_confirmed", ...(entry.doi.trim() ? { doi: entry.doi.trim() } : {}),
+        ...(entry.source_url.trim() ? { source_url: entry.source_url.trim() } : {}) };
+    }
+    if (snapshot && !patches.length && !Object.keys(material_bibliography).length && schoolProfileEdit === undefined) return snapshot;
     const payload = snapshot
-      ? { expected_revision: document!.revision, patches }
-      : { project_id: projectId, patches, selected_sources: [] };
+      ? { expected_revision: document!.revision, patches,
+          ...(Object.keys(material_bibliography).length ? { material_bibliography } : {}),
+          ...(schoolProfileEdit !== undefined ? { school_profile_id: schoolProfileEdit } : {}) }
+      : { project_id: projectId, patches, selected_sources: [],
+          ...(schoolProfileEdit !== undefined ? { school_profile_id: schoolProfileEdit } : {}) };
     const value = await workspaceRequest<BriefSnapshot>(
       identity,
       snapshot ? `${WORKSPACE}/briefs/${document!.id}` : `${WORKSPACE}/briefs`,
@@ -142,6 +208,25 @@ export function BriefEditor({
     );
     accept(value);
     return value;
+  }
+
+  async function editBibliography(fileId: string) {
+    if (!document) return;
+    const scope = bibliographyScope.current;
+    const value = await workspaceRequest<BibliographySource>(identity,
+      `${WORKSPACE}/briefs/${document.id}/material-bibliography/${fileId}`);
+    if (scope !== bibliographyScope.current) return;
+    const metadata = value.bibliography;
+    setBibliographyEdits(current => ({ ...current, [fileId]: { file_id: value.source.file_id,
+      file_sha256: value.source.file_sha256, representation_id: value.source.representation_id,
+      title: metadata?.title || "", authors: metadata?.authors.join("\n") || "", year: metadata ? String(metadata.year) : "",
+      doi: metadata?.doi || "", source_url: metadata?.source_url || "", confirmed: false } }));
+    setNotice(`正在确认${value.source.material_name}的题录。文件名和内嵌作者信息不会自动当作论文题录。`);
+  }
+
+  function editBibliographyField(fileId: string, field: keyof BibliographyEdit, value: string | boolean) {
+    setBibliographyEdits(current => ({ ...current, [fileId]: { ...current[fileId], [field]: value,
+      ...(field === "confirmed" ? {} : { confirmed: false }) } }));
   }
 
   async function action(work: () => Promise<void>) {
@@ -291,6 +376,25 @@ export function BriefEditor({
       <p className="muted">
         先回答当前最关键的三项即可。方法、基线等尚未确定时可以先保存或请助手提出建议，建议经你确认后才成为研究要求。
       </p>
+      <section className="cq-brief-sources" aria-label="学校与年级格式">
+        <label htmlFor="brief-school-profile">学校与年级格式</label>
+        <select id="brief-school-profile" value={selectedSchoolProfileId || ""}
+          disabled={busy || !!latest || !schoolProfiles}
+          onChange={event => setSchoolProfileEdit(event.target.value === savedSchoolProfileId ? undefined : event.target.value)}>
+          {!schoolProfiles && <option value={selectedSchoolProfileId || ""}>{schoolProfileError ? "格式选项未能读取" : "正在读取格式选项…"}</option>}
+          {schoolProfiles?.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.label}</option>)}
+        </select>
+        {schoolProfileError && <p role="alert">格式选项暂未读取成功。<button type="button" onClick={() => setSchoolProfileReload(value => value + 1)}>重新读取</button></p>}
+        {schoolProfileEdit !== undefined && <p className="muted">格式选择尚未保存，将与本次研究信息一起保存为新版本。</p>}
+        {snapshot && !document?.school_profile_id && schoolProfileEdit === undefined && <p className="muted">此档案沿用原有的 2024 级格式。</p>}
+        {selectedSchoolProfile && <>
+          <p><a href={selectedSchoolProfile.source_url} target="_blank" rel="noreferrer">官方开题要求 ↗</a>
+            {selectedSchoolProfile.template_source_url && <>{" · "}<a href={selectedSchoolProfile.template_source_url} target="_blank" rel="noreferrer">原始模板 ↗</a></>}</p>
+          {!!selectedSchoolProfile.section_titles.length && <p className="muted">正文内容：{selectedSchoolProfile.section_titles.join("；")}。</p>}
+          <p className="muted">文献综述不少于 {selectedSchoolProfile.literature_minimum_han} 汉字（<a href={selectedSchoolProfile.literature_requirement_source_url || selectedSchoolProfile.source_url} target="_blank" rel="noreferrer">要求出处</a>）。
+            系统写作篇幅为 {selectedSchoolProfile.demonstration_minimum_han}–{selectedSchoolProfile.demonstration_maximum_han} 汉字。</p>
+        </>}
+      </section>
       {!!document?.selected_sources.length && (
         <section className="cq-brief-sources">
           <h3>已关联的研究资料 · {document.selected_sources.length} 份</h3>
@@ -349,6 +453,41 @@ export function BriefEditor({
           </ul>
         </section>
       )}
+      {!!materialReferences.length && <section className="cq-brief-sources" aria-label="上传参考文献题录确认">
+        <h3>上传参考文献题录</h3>
+        <p className="muted">核对题名、作者与年份后集中保存。这里保存用户确认的信息；论文身份、版权与原文证据分别核验。</p>
+        {!!missingBibliography.length && <p className="notice" role="status">
+          还有 {missingBibliography.length} 份上传参考文献待确认题录，完成后可开始研究计划。
+        </p>}
+        {materialReferences.map((source, index) => {
+          const entry = bibliographyEdits[source.id];
+          const saved = document?.material_bibliography?.[source.id];
+          return <details key={source.id} open={!!entry}>
+            <summary>第 {index + 1} 份上传参考文献 · {saved?.title || source.id.slice(0, 8)} · {saved ? "用户已确认" : "待确认"}</summary>
+            <p><Link to={`/materials/${source.id}`}>打开材料核对原文 ↗</Link></p>
+            {!entry ? <button disabled={busy || !!latest} onClick={() => action(() => editBibliography(source.id))}>
+              {saved ? "修改并重新确认题录" : "填写并确认题录"}
+            </button> : <div className="cq-brief-grid">
+              <label>论文题名<input maxLength={500} value={entry.title} disabled={busy}
+                onChange={event => editBibliographyField(source.id, "title", event.target.value)} /></label>
+              <label>作者（每行一位，按原文顺序）<textarea rows={3} maxLength={20000} value={entry.authors} disabled={busy}
+                onChange={event => editBibliographyField(source.id, "authors", event.target.value)} /></label>
+              <label>发表年份<input type="number" min={1000} max={2200} value={entry.year} disabled={busy}
+                onChange={event => editBibliographyField(source.id, "year", event.target.value)} /></label>
+              <label>DOI（可选）<input maxLength={512} value={entry.doi} disabled={busy}
+                onChange={event => editBibliographyField(source.id, "doi", event.target.value)} /></label>
+              <label>原文链接（可选）<input type="url" maxLength={2000} value={entry.source_url} disabled={busy}
+                onChange={event => editBibliographyField(source.id, "source_url", event.target.value)} /></label>
+              <label><input type="checkbox" checked={entry.confirmed} disabled={busy}
+                onChange={event => editBibliographyField(source.id, "confirmed", event.target.checked)} />
+                我已核对这份材料的题名、作者与年份</label>
+              <button disabled={busy} onClick={() => setBibliographyEdits(current => {
+                const next = { ...current }; delete next[source.id]; return next;
+              })}>取消这份题录编辑</button>
+            </div>}
+          </details>;
+        })}
+      </section>}
       {error && (
         <div className="notice" role="alert">
           <p>{error}</p>
@@ -364,6 +503,8 @@ export function BriefEditor({
         <section className="cq-version-conflict" aria-label="版本冲突处理">
           <h3>其他位置已有新版本，你的草稿没有丢失</h3>
           <p>请比较下列修改。继续编辑不会直接覆盖服务器，你仍需再点保存。</p>
+          {!!Object.keys(bibliographyEdits).length && <p>本页尚有上传文献题录未保存；确认最新版本后，仍保留这些填写供你核对。</p>}
+          {schoolProfileEdit !== undefined && <p>服务器格式：{schoolProfileLabel(latest.brief.school_profile_id)}；本页选择：{schoolProfileLabel(schoolProfileEdit)}。格式选择仍保留，请核对后保存。</p>}
           <div className="cq-table-scroll">
             <table>
               <thead>
@@ -459,6 +600,9 @@ export function BriefEditor({
                       ([field, edit]) =>
                         `${FIELD_LABELS[field as BriefField]}\n${edit!.value}`,
                     )
+                    .concat(Object.values(bibliographyEdits).map(entry =>
+                      `上传文献题录\n${entry.title}\n${entry.authors}\n${entry.year}\n${entry.doi}\n${entry.source_url}`))
+                    .concat(schoolProfileEdit !== undefined ? [`学校与年级格式\n${schoolProfileLabel(schoolProfileEdit)}\n${schoolProfileEdit}`] : [])
                     .join("\n\n"),
                 );
                 setNotice("未保存内容已复制。请保管好私人研究信息。");
@@ -553,12 +697,11 @@ export function BriefEditor({
         <p>
           {snapshot?.readiness.state === "ready_for_planning"
             ? "主要研究信息已补齐；执行前仍会核对当前选源、权限、资源和证据。"
-            : `仍有 ${snapshot?.readiness.missing_fields.length ?? 12} 项待补充${proposals.some((proposal) => proposal.kind === "conflict") ? "，并有信息冲突待解决" : ""}。可以保存后分次继续。`}
+            : `仍有 ${snapshot?.readiness.missing_fields.length ?? 12} 项研究信息待补充${missingBibliography.length ? `，另有 ${missingBibliography.length} 份上传参考文献待确认题录` : ""}${proposals.some((proposal) => proposal.kind === "conflict") ? "，并有信息冲突待解决" : ""}。可以保存后分次继续。`}
         </p>
         <p className="muted">
           研究助手只会使用已保存要求和获准的资料；拟议实验不会被写成已经完成的结果。
         </p>
-        <p className="muted">当前学校格式档按公开的上交计算机系 2024 硕士模板进行容量验证：正文 8000–12000 汉字、综述至少 5000 汉字。这是本项目的长文验证档，不代表学校对所有研究计划的统一字数要求；信息或证据不足会停止并报告。</p>
         <button
           type="button"
           className="primary"
@@ -567,6 +710,7 @@ export function BriefEditor({
             dirty ||
             !!latest ||
             !onResearchStart ||
+            missingBibliography.length > 0 ||
             snapshot?.readiness.state !== "ready_for_planning"
           }
           onClick={() =>
@@ -575,17 +719,46 @@ export function BriefEditor({
                 identity,
                 `${WORKSPACE}/briefs/${document!.id}/planning-input?expected_revision=${document!.revision}`,
               );
-              await onResearchStart?.(input);
+              await onResearchStart?.(input, "plan");
               setNotice(
                 "当前版本已送至任务入口，排队或执行情况请查看实际任务状态。",
               );
             })
           }
         >
-          开始研究计划任务
+          生成研究计划书
+        </button>
+        <h4>辅助实验设计</h4>
+        <p>
+          {experimentReadiness?.state === "ready_for_experiment"
+            ? "实验设计所需的基本信息已保存，可以开始规划方法、对照、指标和评估步骤。"
+            : experimentReadiness
+              ? `还有 ${experimentReadiness.missing_fields.length} 项实验背景待补充${experimentReadiness.open_conflicts.length ? "，并有信息冲突待解决" : ""}。可在上方查看和编辑全部研究信息后保存。`
+              : "保存研究档案后，将核对实验设计需要的信息。"}
+        </p>
+        {!!experimentReadiness?.questions.length && <ul>
+          {experimentReadiness.questions.map(({ field, question }) => <li key={field}>
+            {FIELD_LABELS[field]}：{question}
+          </li>)}
+        </ul>}
+        <p className="muted">尚未确定的条件可以明确标为“暂未确定”；助手会保留这些未知并提出待验证的设计，不会写成已完成的实验结果。</p>
+        <button
+          type="button"
+          disabled={busy || dirty || !!latest || !onResearchStart ||
+            experimentReadiness?.state !== "ready_for_experiment"}
+          onClick={() => action(async () => {
+            const input = await workspaceRequest<PlanningInput>(
+              identity,
+              `${WORKSPACE}/briefs/${document!.id}/planning-input?expected_revision=${document!.revision}&action=experiment`,
+            );
+            await onResearchStart?.(input, "experiment");
+            setNotice("当前版本已送至实验设计任务，执行过程和补充问题请查看实际任务状态。");
+          })}
+        >
+          辅助实验设计
         </button>
         {!onResearchStart && (
-          <p className="muted">多智能体正式研究与学校计划书生成尚未启用。</p>
+          <p className="muted">多智能体研究任务尚未启用。</p>
         )}
       </section>
     </section>

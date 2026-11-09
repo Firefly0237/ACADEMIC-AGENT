@@ -7,6 +7,7 @@ supports a fact. Persistence/authorization are supplied by ``brief_service``.
 from __future__ import annotations
 
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 from uuid import UUID, uuid5
 
 from pydantic import Field, StringConstraints, ValidationError, field_validator, model_validator
@@ -84,6 +85,9 @@ REQUIRED: tuple[BriefField, ...] = (
     "stop_conditions",
     "preliminary_work",
 )
+EXPERIMENT_REQUIRED: tuple[BriefField, ...] = (
+    "topic", "purpose", "research_questions", "data_sources", "resources",
+)
 
 
 class Fact(Strict):
@@ -106,6 +110,63 @@ class Proposal(Strict):
     state: Literal["open", "accepted", "discarded", "superseded"] = "open"
 
 
+BibliographicText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
+
+class MaterialBibliography(Strict):
+    file_id: ID
+    file_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    representation_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    title: BibliographicText
+    authors: list[BibliographicText] = Field(min_length=1, max_length=100)
+    year: int = Field(ge=1000, le=2200)
+    doi: str | None = Field(default=None, max_length=512, exclude_if=lambda value: value is None)
+    source_url: str | None = Field(default=None, max_length=2000, exclude_if=lambda value: value is None)
+    confirmed: Literal[True]
+    provenance: Literal["user_confirmed"] = "user_confirmed"
+    confirmation_message_id: ID | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @field_validator("title")
+    @classmethod
+    def valid_title(cls, value: str) -> str:
+        return validate_user_text(value)
+
+    @field_validator("authors")
+    @classmethod
+    def valid_authors(cls, values: list[str]) -> list[str]:
+        return [validate_user_text(value) for value in values]
+
+    @field_validator("doi")
+    @classmethod
+    def valid_doi(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        validate_user_text(value)
+        from citequest.v2.services import normalize_identifier
+        try:
+            return normalize_identifier("doi", value)
+        except DomainError as error:
+            raise ValueError("invalid confirmed DOI") from error
+
+    @field_validator("source_url")
+    @classmethod
+    def safe_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        validate_user_text(value)
+        parsed = urlsplit(value)
+        if any(ord(char) <= 32 for char in value) or parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("bibliographic URL must be an HTTP(S) address without credentials")
+        return value
+
+
+def validated_school_profile(value: str | None) -> str | None:
+    if value is not None:
+        from .school_profiles import get_profile
+        get_profile(value)
+    return value
+
+
 class BriefDocument(Strict):
     schema_version: Literal["citequest-research-intake/1"] = "citequest-research-intake/1"
     id: ID
@@ -115,6 +176,10 @@ class BriefDocument(Strict):
     proposals: list[Proposal] = Field(default_factory=list, max_length=64)
     selected_sources: list[EvidenceSelection] = Field(default_factory=list, max_length=20)
     draft_source_ids: list[ID] = Field(default_factory=list, max_length=4, exclude_if=lambda value: not value)
+    material_bibliography: dict[str, MaterialBibliography] | None = Field(default=None, max_length=20,
+        exclude_if=lambda value: value is None)
+    school_profile_id: str | None = Field(default=None, max_length=100, exclude_if=lambda value: value is None)
+    _school_profile = field_validator("school_profile_id")(validated_school_profile)
 
     @model_validator(mode="after")
     def bounded(self) -> BriefDocument:
@@ -124,6 +189,9 @@ class BriefDocument(Strict):
         material_ids = {source.id for source in self.selected_sources if source.kind == "material_file"}
         if len(set(self.draft_source_ids)) != len(self.draft_source_ids) or any(str(value) not in material_ids for value in self.draft_source_ids):
             raise ValueError("draft markers must be unique selected material file IDs")
+        references = material_ids - {str(value) for value in self.draft_source_ids}
+        if any(key not in references or str(value.file_id) != key for key, value in (self.material_bibliography or {}).items()):
+            raise ValueError("confirmed bibliography must identify selected material references, never research drafts")
         if len({proposal.id for proposal in self.proposals}) != len(self.proposals):
             raise ValueError("proposal ids must be unique")
         if len(self.model_dump_json().encode("utf-8")) > 65536:
@@ -155,6 +223,8 @@ class BriefCreate(Strict):
     patches: list[FieldPatch] = Field(default_factory=list, max_length=16)
     selected_sources: list[EvidenceSelection] = Field(default_factory=list, max_length=20)
     draft_source_ids: list[ID] = Field(default_factory=list, max_length=4, exclude_if=lambda value: not value)
+    school_profile_id: str | None = Field(default=None, max_length=100, exclude_if=lambda value: value is None)
+    _school_profile = field_validator("school_profile_id")(validated_school_profile)
 
     @model_validator(mode="after")
     def valid_sources(self) -> BriefCreate:
@@ -173,15 +243,22 @@ class BriefTurn(Strict):
     patches: list[FieldPatch] = Field(default_factory=list, max_length=16)
     selected_sources: list[EvidenceSelection] | None = Field(default=None, max_length=20)
     draft_source_ids: list[ID] | None = Field(default=None, max_length=4, exclude_if=lambda value: value is None)
+    material_bibliography: dict[str, MaterialBibliography | None] | None = Field(default=None, max_length=20,
+        exclude_if=lambda value: value is None)
+    school_profile_id: str | None = Field(default=None, max_length=100, exclude_if=lambda value: value is None)
+    _school_profile = field_validator("school_profile_id")(validated_school_profile)
 
     @model_validator(mode="after")
     def nonempty(self) -> BriefTurn:
-        if not self.patches and self.selected_sources is None and self.draft_source_ids is None:
+        if not self.patches and self.selected_sources is None and self.draft_source_ids is None and not self.material_bibliography and self.school_profile_id is None:
             raise ValueError("empty brief turn")
         if self.draft_source_ids is not None and len(set(self.draft_source_ids)) != len(self.draft_source_ids):
             raise ValueError("duplicate draft marker")
         if self.selected_sources is not None and len({(item.kind, item.id) for item in self.selected_sources}) != len(self.selected_sources):
             raise ValueError("duplicate selected source")
+        for identifier, record in (self.material_bibliography or {}).items():
+            if str(UUID(identifier)) != identifier or (record is not None and str(record.file_id) != identifier):
+                raise ValueError("bibliography keys must be canonical matching material file IDs")
         return self
 
 
@@ -256,19 +333,34 @@ def apply_turn(document: BriefDocument, command: BriefTurn) -> BriefDocument:
                     p.model_copy(update={"state": "superseded"}) if p.field == patch.field and p.state == "open" else p
                     for p in proposals
                 ]
+    selected_sources = document.selected_sources if command.selected_sources is None else command.selected_sources
+    draft_ids = document.draft_source_ids if command.draft_source_ids is None else command.draft_source_ids
+    reference_ids = {source.id for source in selected_sources if source.kind == "material_file"} - {str(value) for value in draft_ids}
+    bibliography = {key: value for key, value in (document.material_bibliography or {}).items() if key in reference_ids}
+    for key, value in (command.material_bibliography or {}).items():
+        if value is None:
+            bibliography.pop(key, None)
+        elif key not in reference_ids or str(value.file_id) != key:
+            raise DomainError("material_not_in_research_reference_scope", 422)
+        else:
+            bibliography[key] = value.model_copy(update={"confirmation_message_id": command.message_id})
     return _update(
         document,
         revision=document.revision + 1,
         facts=facts,
         proposals=proposals,
-        selected_sources=document.selected_sources if command.selected_sources is None else command.selected_sources,
-        draft_source_ids=document.draft_source_ids if command.draft_source_ids is None else command.draft_source_ids,
+        selected_sources=selected_sources,
+        draft_source_ids=draft_ids,
+        material_bibliography=bibliography or None,
+        school_profile_id=command.school_profile_id if command.school_profile_id is not None else document.school_profile_id,
     )
 
 
 def create_document(request: BriefCreate) -> BriefDocument:
+    from .school_profiles import default_profile_id
     base = BriefDocument(
-        id=uuid5(request.project_id, str(request.operation_id)), project_id=request.project_id, revision=1
+        id=uuid5(request.project_id, str(request.operation_id)), project_id=request.project_id, revision=1,
+        school_profile_id=request.school_profile_id or default_profile_id(),
     )
     if not request.patches and not request.selected_sources and not request.draft_source_ids:
         return base
@@ -312,6 +404,12 @@ def resolve(document: BriefDocument, command: BriefResolution) -> BriefDocument:
     return _update(document, revision=document.revision + 1, facts=facts, proposals=proposals)
 
 
+def missing_material_bibliography(document: BriefDocument) -> list[str]:
+    drafts = {str(value) for value in document.draft_source_ids}
+    return [source.id for source in document.selected_sources if source.kind == "material_file"
+        and source.id not in drafts and source.id not in (document.material_bibliography or {})]
+
+
 def readiness(document: BriefDocument) -> dict:
     missing = [
         field
@@ -319,20 +417,36 @@ def readiness(document: BriefDocument) -> dict:
         if field not in document.facts or (document.facts[field].status != "confirmed" and field != "preliminary_work")
     ]
     conflicts = [str(p.id) for p in document.proposals if p.kind == "conflict" and p.state == "open"]
+    missing_bibliography = missing_material_bibliography(document)
+    experiment_missing = [field for field in EXPERIMENT_REQUIRED if field not in document.facts]
     return {
-        "state": "needs_input" if missing or conflicts else "ready_for_planning",
+        "state": "needs_input" if missing or conflicts or missing_bibliography else "ready_for_planning",
         "missing_fields": missing,
         "questions": [{"field": field, "question": QUESTIONS[field]} for field in missing],
         "open_conflicts": conflicts,
         "model_calls_required": 0,
         "school_format_ready": False,
+        "missing_material_bibliography": missing_bibliography,
+        "experiment_readiness": {
+            "state": "needs_input" if experiment_missing or conflicts else "ready_for_experiment",
+            "missing_fields": experiment_missing,
+            "questions": [{"field": field, "question": QUESTIONS[field]} for field in experiment_missing],
+            "open_conflicts": conflicts,
+            "model_calls_required": 0,
+        },
     }
 
 
-def planning_payload(document: BriefDocument) -> dict:
+def planning_payload(document: BriefDocument, *, action: Literal["plan", "experiment"] = "plan") -> dict:
     """A deterministic handoff; current source admission is a separate mandatory gate."""
+    if action not in {"plan", "experiment"}:
+        raise DomainError("invalid_research_action", 400)
     assessment = readiness(document)
-    if assessment["state"] != "ready_for_planning":
+    if action == "plan" and assessment["missing_material_bibliography"]:
+        raise DomainError("research_material_bibliography_required", 422)
+    ready = (assessment["state"] == "ready_for_planning" if action == "plan" else
+             assessment["experiment_readiness"]["state"] == "ready_for_experiment")
+    if not ready:
         raise DomainError("research_brief_needs_input", 422)
     return {
         "schema_version": "citequest-research-planning-input/1",
@@ -344,6 +458,7 @@ def planning_payload(document: BriefDocument) -> dict:
             key: fact.value for key, fact in document.facts.items() if fact.status == "explicit_unknown"
         },
         "selected_sources": [source.model_dump(mode="json") for source in document.selected_sources],
+        **({"school_profile_id": document.school_profile_id} if document.school_profile_id is not None else {}),
         **({"draft_source_ids": [str(value) for value in document.draft_source_ids]} if document.draft_source_ids else {}),
         "research_status": "proposed_not_executed",
         "source_admission_required": True,

@@ -13,13 +13,14 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import anyio
-from filelock import Timeout, WindowsFileLock
+from filelock import Timeout
 from sqlalchemy import create_engine, insert, select, text, update
 from sqlalchemy.engine import Connection, Engine
 
 from citequest.materials_v2.reference_fetch import FetchContext, FetchError
 from citequest.updates_v2 import models as m
 from citequest.updates_v2.context import WindowFetchContext
+from .locks import WINDOWS_PROFILE, native_lock, policy, policy_sha
 
 POLICY = {"id": "cq.shared-source-network/1", "backend": "WindowsFileLock4.2.9+PG-session-advisory",
           "per_hop_cooldown_seconds": {"arxiv": 3.1, "crossref": 1.0}, "unknown_ack": "retain_unknown_fail_closed"}
@@ -44,9 +45,11 @@ class PgSourceGate:
     """
     production = True
 
-    def __init__(self, engine: Engine, lock_root: Path, *, wait_for_slot: bool = False) -> None:
-        if os.name != "nt":
-            raise RuntimeError("current_shared_source_gate_requires_Windows_kernel_backend")
+    def __init__(self, engine: Engine, lock_root: Path, *, wait_for_slot: bool = False,
+                 profile_id: str = WINDOWS_PROFILE) -> None:
+        self.profile_id, self.policy = profile_id, policy(profile_id)
+        self.policy_sha256 = policy_sha(profile_id)
+        native_lock(lock_root / "profile-check.lock", profile_id)
         if version("filelock") != "4.2.9":
             raise RuntimeError("source_gate_filelock_version_mismatch")
         self.engine, self.lock_root = engine, lock_root.resolve()
@@ -69,7 +72,7 @@ class PgSourceGate:
                 elif not conn.execute(text("SELECT pg_try_advisory_lock(:slot)"), {"slot": self._slot(provider)}).scalar():
                     raise FetchError("SOURCE_PROVIDER_DATABASE_BUSY")
                 row = conn.execute(select(m.NetworkState).where(m.NetworkState.provider == provider)).mappings().first()
-                if row is None or row["policy_sha256"] != POLICY_SHA:
+                if row is None or row["policy_sha256"] != self.policy_sha256:
                     raise FetchError("SOURCE_GATE_POLICY_OR_TABLE_UNAVAILABLE")
                 if reconcile and row["current_attempt_id"]:
                     previous = conn.execute(select(m.NetworkAttempt.receipt).where(m.NetworkAttempt.id == row['current_attempt_id'])).scalar_one()
@@ -107,7 +110,8 @@ class PgSourceGate:
             backend_pid = conn.execute(text("SELECT pg_backend_pid()")).scalar_one()
         conn.execution_options(isolation_level="AUTOCOMMIT")
         return {**caller, "attempt_id": str(attempt_id), "provider": provider, "fence": fence, "started_at": now.isoformat(),
-                "backend_pid": backend_pid, "gate_mode": "shared_kernel_lock_and_PG", "request_intent_sha256": request_sha,
+                "backend_pid": backend_pid, "gate_mode": "shared_kernel_lock_and_PG", "source_gate_profile": self.profile_id,
+                "source_gate_policy_sha256": self.policy_sha256, "request_intent_sha256": request_sha,
                 "network_transaction_open": False}
 
     def _finish(self, conn: Connection, receipt: dict, error: BaseException | None) -> None:
@@ -171,9 +175,9 @@ class PgSourceGate:
 
     @asynccontextmanager
     async def permit(self, provider: str, url: str, context: FetchContext) -> AsyncIterator[dict]:
-        if provider not in POLICY["per_hop_cooldown_seconds"]:
+        if provider not in self.policy["per_hop_cooldown_seconds"]:
             raise FetchError("SOURCE_PROVIDER_REJECTED")
-        lock = WindowsFileLock(str(self.lock_root / (provider + ".lock")), timeout=0, thread_local=False, is_singleton=False)
+        lock = native_lock(self.lock_root / (provider + ".lock"), self.profile_id)
         conn = None
         receipt = None
         error = None
@@ -203,7 +207,7 @@ class PgSourceGate:
             except Exception as exc:
                 raise FetchError("SOURCE_GATE_DATABASE_UNAVAILABLE") from exc
             with anyio.fail_after(context.remaining()):
-                await anyio.sleep(POLICY["per_hop_cooldown_seconds"][provider])
+                await anyio.sleep(self.policy["per_hop_cooldown_seconds"][provider])
             caller = {}
             if isinstance(context, WindowFetchContext):
                 caller = {'source_window_id': str(UUID(context.source_window_id)), 'source_sequence': context.source_sequence}

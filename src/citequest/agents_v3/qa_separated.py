@@ -373,15 +373,22 @@ class QASeparated(QA9):
 
     def navigate_retrieved(self, state):
         from .evidence_navigation import navigation_frontier
+        from .product_profiles import evidence_navigation_protocol
 
         data = copy.deepcopy(state["qa5"])
         tools = self.graph.tools
         if not tools.decisionrag_enabled:
             raise AgentError("decisionrag_task_configuration_unavailable", 503)
-        frontier = navigation_frontier(state["evidence"], tools.decisionrag_frontier_limit)
-        boundary = {"protocol": "laya1", "retrieved_passages": len(state["evidence"]),
+        protocol = evidence_navigation_protocol(self.graph.execution.snapshot())
+        frontier = navigation_frontier(state["evidence"], tools.decisionrag_frontier_limit,
+            capacity_limit=20 if protocol == "laya2" else 8)
+        boundary = {"protocol": protocol, "retrieved_passages": len(state["evidence"]),
             "input_frontier_ref_ids": frontier, "frontier_selection": "rank_preserving_document_round_robin",
             "full_corpus_or_full_document_coverage": False, "source_text_truncated": False}
+        if protocol == "laya2":
+            boundary.update(complete_retrieved_frontier=len(frontier) == len(state["evidence"]),
+                probability_comparison="batch_screening_then_shared_final_rescore",
+                supplemental_evidence_probability_navigation="initial_frontier_only")
         if not frontier:
             data["evidence_navigation"] = {**boundary, "status": "not_run_no_candidates", "decision_calls": 0, "trace": []}
             return {"qa5": data, "evidence": [], "answer": None}
@@ -389,7 +396,8 @@ class QASeparated(QA9):
         navigation = self.graph.wait(tools.navigate_issued(query, frontier,
             logical_key=self.key(data, "tool:decisionrag"), planning_context=data["binding"]))
         selected = navigation.get("evidence_ref_ids")
-        if (navigation.get("status") != "ok" or not isinstance(selected, list) or not selected
+        if (navigation.get("status") != "ok" or navigation.get("navigation_protocol") != protocol
+                or not isinstance(selected, list) or not selected
                 or any(not isinstance(ref, str) for ref in selected)
                 or len(selected) != len(set(selected)) or not set(selected) <= set(frontier)):
             raise AgentError("decisionrag_selected_reference_identity_invalid")

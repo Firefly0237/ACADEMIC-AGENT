@@ -7,13 +7,9 @@
 !assets/export/**
 !scripts/
 !scripts/s13/
-!scripts/s13/export_entry.py
-!scripts/s13/bundle_entry.py
-!scripts/s13/install_fonts.py
+!scripts/s13/*.py
 !runtime/
 !runtime/s13/
-!runtime/s13/requirements.txt
-!runtime/s13/fontconfig.xml
-!runtime/s13/font-packages.lock.json
+!runtime/s13/**
 **/__pycache__/
 **/*.pyc

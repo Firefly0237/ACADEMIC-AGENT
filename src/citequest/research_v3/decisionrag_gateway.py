@@ -29,11 +29,11 @@ from starlette.concurrency import run_in_threadpool
 from citequest.agents_v3.contracts import AgentError, Strict, canonical
 
 from .decisionrag import DecisionRequest
-from .decisionrag_remote import PROTOCOL, REQUEST_BYTES, RESPONSE_BYTES, token_from_file
+from .decisionrag_remote import PROTOCOL, PROTOCOL_V2, REQUEST_BYTES, RESPONSE_BYTES, token_from_file
 
 
 class GatewayConfig(Strict):
-    version: Literal["citequest-decisionrag-Windows-CPU/1", "citequest-decisionrag-Linux-CPU/1"]
+    version: Literal["citequest-decisionrag-Windows-CPU/1", "citequest-decisionrag-Linux-CPU/1", "citequest-decisionrag-Linux-CPU/2"]
     host: str
     port: int = Field(ge=1024, le=65535)
     bearer_token_file: Path
@@ -41,6 +41,14 @@ class GatewayConfig(Strict):
     asset_receipt_file: Path
     asset_receipt_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     cache_root: Path
+
+    @property
+    def protocol(self) -> str:
+        return PROTOCOL_V2 if self.version.endswith("/2") else PROTOCOL
+
+    @property
+    def sequence_tokens(self) -> int:
+        return 8192 if self.version.endswith("/2") else 1024
 
     @model_validator(mode="after")
     def fixed_private_binding(self):
@@ -64,7 +72,7 @@ class WireRequest(Strict):
 
 
 class GatewayCall(Strict):
-    protocol: Literal["citequest-decisionrag-probability/1"]
+    protocol: Literal["citequest-decisionrag-probability/1", "citequest-decisionrag-probability/2"]
     operation: Literal["preflight", "score"]
     remaining_ms: int = Field(ge=1, le=25000)
     request: WireRequest
@@ -76,7 +84,7 @@ def _model_process(connection, config_value: dict, parent_pid: int) -> None:
     judge = None
     try:
         config = GatewayConfig.model_validate(config_value, strict=True)
-        if sys.platform == "linux" and config.version == "citequest-decisionrag-Linux-CPU/1":
+        if sys.platform == "linux" and config.version in {"citequest-decisionrag-Linux-CPU/1", "citequest-decisionrag-Linux-CPU/2"}:
             from .decisionrag_linux import apply_child_limits
             apply_child_limits(parent_pid)
         elif os.name != "nt" or config.version != "citequest-decisionrag-Windows-CPU/1":
@@ -107,17 +115,18 @@ def _model_process(connection, config_value: dict, parent_pid: int) -> None:
             raise AgentError("decisionrag_explicit_CPU_runtime_required")
         from .decisionrag_laya import LayaLocalConfig, LayaLocalJudge
         judge = LayaLocalJudge(LayaLocalConfig(config.assets / "model", wheel,
-            config.asset_receipt_file, config.asset_receipt_sha256, root))
+            config.asset_receipt_file, config.asset_receipt_sha256, root,
+            max_len=config.sequence_tokens, navigation_protocol="laya2" if config.version.endswith("/2") else "laya1"))
         connection.send_bytes(canonical({"status": "ready", "model_binding": judge.model_binding,
             "model_load_seconds": judge.load_seconds, "forwards": 0}))
         while True:
             raw = connection.recv_bytes(REQUEST_BYTES)
             call = GatewayCall.model_validate_json(raw, strict=True)
             request = call.request.request()
-            result = {"protocol": PROTOCOL, "operation": call.operation,
+            result = {"protocol": config.protocol, "operation": call.operation,
                 "request_sha256": request.fingerprint(), "model_binding": judge.model_binding}
             try:
-                if call.request_sha256 != request.fingerprint():
+                if call.protocol != config.protocol or call.request_sha256 != request.fingerprint():
                     raise AgentError("decisionrag_remote_request_identity_mismatch")
                 if call.operation == "preflight":
                     checks = judge.preflight(request)
@@ -145,7 +154,7 @@ class ModelProcess:
     """One hot child, zero queued inference, no automatic timeout restart."""
     def __init__(self, config: GatewayConfig):
         if ((os.name == "nt" and config.version != "citequest-decisionrag-Windows-CPU/1")
-                or (sys.platform == "linux" and config.version != "citequest-decisionrag-Linux-CPU/1")
+                or (sys.platform == "linux" and config.version not in {"citequest-decisionrag-Linux-CPU/1", "citequest-decisionrag-Linux-CPU/2"})
                 or (os.name != "nt" and sys.platform != "linux")):
             raise AgentError("decisionrag_explicit_process_platform_required")
         self.process, self.connection, self.job = None, None, None
@@ -255,12 +264,12 @@ def create_app(config: GatewayConfig, *, process_factory=ModelProcess) -> FastAP
             return JSONResponse({"error_code": "decisionrag_gateway_unauthorized"}, status_code=401)
         process = state["process"]
         ready = not process.failure and process.process.is_alive()
-        return JSONResponse({"ready": ready, "protocol": PROTOCOL,
+        return JSONResponse({"ready": ready, "protocol": config.protocol,
             "model_binding": process.startup.get("model_binding"), "concurrency": 1,
             "model_load_seconds": process.startup.get("model_load_seconds"),
             "physical_deadline_enforced_by_parent": True,
             "process_supervisor": config.version,
-            "input_limits": {"candidates": 8, "sequence_tokens": 1024,
+            "input_limits": {"candidates": 8, "sequence_tokens": config.sequence_tokens,
                 "head_tokens": 256, "complete_token_preflight_required": True}}, status_code=200 if ready else 503)
 
     @app.post("/v1/decision")
@@ -280,7 +289,7 @@ def create_app(config: GatewayConfig, *, process_factory=ModelProcess) -> FastAP
         try:
             call = GatewayCall.model_validate_json(bytes(raw), strict=True)
             value = call.request.request()
-            if value.fingerprint() != call.request_sha256:
+            if call.protocol != config.protocol or value.fingerprint() != call.request_sha256:
                 raise AgentError("decisionrag_remote_request_identity_mismatch")
         except (ValidationError, AgentError):
             return JSONResponse({"error_code": "decisionrag_gateway_request_invalid"}, status_code=422)

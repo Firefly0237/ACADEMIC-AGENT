@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .provenance import native_pdf_view
+from .parser_profile import features, verified_assets
 from .text import MaterialError, MaterialLimits, load_limits, prepare_text
 
 
@@ -186,14 +187,10 @@ def _docx_preflight(path: Path, limits: MaterialLimits) -> tuple[list[dict], lis
 
 
 def _docling(path: Path, output: Path, root: Path, profile: dict) -> Any:
-    manifest_path = root / profile["model_manifest"]
-    if _sha(manifest_path) != profile["model_manifest_sha256"]:
-        raise MaterialError("MODEL_MANIFEST_CHANGED")
-    models = json.loads(manifest_path.read_text(encoding="utf-8"))
-    for model in models["models"]:
-        for item in model["files"]:
-            if _sha(root / item["path"]) != item["sha256"]:
-                raise MaterialError("CACHED_MODEL_BYTES_CHANGED")
+    selected = features(profile)
+    assets = verified_assets(root, profile, selected)
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
     from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
     from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
     from docling.datamodel.base_models import InputFormat
@@ -207,14 +204,35 @@ def _docling(path: Path, output: Path, root: Path, profile: dict) -> Any:
     from docling.document_converter import DocumentConverter, PdfFormatOption
 
     layout = LayoutObjectDetectionOptions.from_preset("layout_heron_default")
-    layout.model_spec.revision = models["models"][0]["resolved_revision"]
+    layout.model_spec.revision = assets["layout_revision"]
     layout.engine_options = TransformersObjectDetectionEngineOptions(torch_dtype="float32", compile_model=False)
-    opts = PdfPipelineOptions(artifacts_path=root / profile["model_cache_root"],
+    enhanced = {}
+    if selected.ocr_enabled:
+        from docling.datamodel.pipeline_options import OcrMode, RapidOcrOptions
+
+        enhanced["ocr_options"] = RapidOcrOptions(mode=OcrMode.FULL_PAGE,
+            lang=[selected.ocr_language], backend="torch", use_det=True, use_cls=True, use_rec=True,
+            print_verbose=False, **assets["ocr_files"])
+    if selected.formula_enabled:
+        from docling.datamodel.pipeline_options import CodeFormulaVlmOptions
+        from docling.datamodel.vlm_engine_options import TransformersVlmEngineOptions
+        from docling.models.inference_engines.vlm.base import VlmEngineType
+
+        formula = CodeFormulaVlmOptions.from_preset("codeformulav2")
+        formula.model_spec.revision = assets["formula_revision"]
+        formula.model_spec.trust_remote_code = False
+        formula.model_spec.engine_overrides[VlmEngineType.TRANSFORMERS].extra_config["torch_dtype"] = "float32"
+        formula.extract_code = False
+        formula.engine_options = TransformersVlmEngineOptions(device=AcceleratorDevice.CPU,
+            torch_dtype="float32", load_in_8bit=False, compile_model=False, trust_remote_code=False)
+        enhanced["code_formula_options"] = formula
+    opts = PdfPipelineOptions(artifacts_path=assets["cache"],
                              accelerator_options=AcceleratorOptions(device=AcceleratorDevice.CPU, num_threads=2),
-                             do_ocr=False, do_table_structure=True,
+                             do_ocr=selected.ocr_enabled, do_table_structure=True,
                              table_structure_options=TableStructureOptions(mode=TableFormerMode.FAST), layout_options=layout,
-                             do_formula_enrichment=False, do_code_enrichment=False, enable_remote_services=False,
-                             allow_external_plugins=False, document_timeout=120, layout_batch_size=1, table_batch_size=1, ocr_batch_size=1)
+                             do_formula_enrichment=selected.formula_enabled, do_code_enrichment=False, enable_remote_services=False,
+                             allow_external_plugins=False, document_timeout=120, layout_batch_size=1, table_batch_size=1, ocr_batch_size=1,
+                             **enhanced)
     converter = DocumentConverter(allowed_formats=[InputFormat.PDF, InputFormat.DOCX],
                                   format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts, backend=PyPdfiumDocumentBackend)})
     _write(output / "docling-options.json", opts.model_dump(mode="json"))
@@ -225,6 +243,7 @@ def _docling(path: Path, output: Path, root: Path, profile: dict) -> Any:
 
 def _parse(request: dict, profile: dict) -> dict:
     root, output = Path(request["root"]), Path(request["output"])
+    selected = features(profile)
     source = Path(request["source_path"]).resolve(strict=True)
     if source.is_symlink() or not source.is_relative_to(root):
         raise MaterialError("INTERNAL_SOURCE_PATH_OUTSIDE_WORKSPACE")
@@ -260,11 +279,13 @@ def _parse(request: dict, profile: dict) -> dict:
         _report_validation(request)
         _write(output / "preflight-pages.json", pages)
         missing = [p["page_1based"] for p in pages if p["status"] != "text"]
-        if missing:
+        if missing and not selected.ocr_enabled:
             return {"state": "partial", "code": "OCR_OR_PAGE_REVIEW_REQUIRED", "source_sha256": sha,
                     "pages_requiring_ocr_or_review": missing, "blocks": [], "can_qa": False, "ocr_enabled": False, "warnings": warnings}
         cached = request.get("cached_docling_document")
         cache_proof = None
+        if cached and selected.mode != "text":
+            raise MaterialError("ENHANCED_PARSE_CACHE_NOT_ALLOWED")
         if cached:
             cached_path = Path(cached).resolve(strict=True)
             if not cached_path.is_relative_to(root / "reports/stages/v2/S04") or _sha(cached_path) != request.get("cached_docling_sha256"):
@@ -286,11 +307,20 @@ def _parse(request: dict, profile: dict) -> dict:
         _write(output / "source-pages.json", view["pages"])
         _write(output / "unmapped-blocks.json", view["missing_ranges"])
         missing_ranges = view["missing_ranges"]
+        covered_pages = {block["locator"]["page_1based"] for block in view["blocks"]}
+        remaining_pages = [number for number in missing if number not in covered_pages]
+        if selected.ocr_enabled:
+            warnings.append("OCR text is a recognized, versioned source representation; correct recognition and formula meaning are not independently verified.")
+        formula_warning = ("Formula enrichment uses the pinned local CodeFormulaV2 model; recognized LaTeX is not a verification of mathematical meaning."
+            if selected.formula_enabled else "Formula recognition/semantics are unverified; formula enrichment is disabled")
         return {"state": "partial" if missing_ranges else "ready", "code": "PDF_PARTIAL_ANCHORS" if missing_ranges else "PDF_PARSED",
                 "source_sha256": sha, "representation_id": view["representation_id"], "pages": len(pages), "blocks": view["blocks"], "unmapped_count": len(missing_ranges),
                 "missing_ranges": missing_ranges, "coverage": view["coverage"], "usable_scope": [b["block_id"] for b in view["blocks"]],
-                "tables": len(native.get("tables", [])), "can_qa": bool(view["blocks"]) and not missing_ranges, "ocr_enabled": False,
-                "formula_semantics_verified": False, "formula_warnings": ["Formula recognition/semantics are unverified; formula enrichment is disabled"] + view["formula_warnings"],
+                "tables": len(native.get("tables", [])), "can_qa": bool(view["blocks"]) and not missing_ranges, "ocr_enabled": selected.ocr_enabled,
+                "ocr_processed_pages": [number for number in missing if number in covered_pages] if selected.ocr_enabled else [],
+                "pages_requiring_ocr_or_review": remaining_pages,
+                "formula_enrichment_enabled": selected.formula_enabled,
+                "formula_semantics_verified": False, "formula_warnings": [formula_warning] + view["formula_warnings"],
                 "table_warnings": view["table_warnings"], "qa_scope": view["qa_scope"], "parse_cache_proof": cache_proof, "warnings": warnings}
     if media == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         paragraphs, warnings, missing_parts = _docx_preflight(source, limits)

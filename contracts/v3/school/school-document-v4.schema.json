@@ -1,0 +1,896 @@
+{
+  "$defs": {
+    "BlockReview": {
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "passed",
+            "needs_revision",
+            "needs_input"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "source_aliases": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Source Aliases",
+          "type": "array"
+        },
+        "quantities_conditions_and_negation_preserved": {
+          "title": "Quantities Conditions And Negation Preserved",
+          "type": "boolean"
+        },
+        "explanation": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Explanation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "block_id",
+        "verdict",
+        "claim_ids",
+        "source_aliases",
+        "quantities_conditions_and_negation_preserved",
+        "explanation"
+      ],
+      "title": "BlockReview",
+      "type": "object"
+    },
+    "Commitment": {
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "question",
+            "method",
+            "resource",
+            "timeline",
+            "term",
+            "numerical",
+            "limitation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "plan_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 24,
+          "title": "Plan Ids",
+          "type": "array"
+        },
+        "numeric_literals": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Numeric Literals",
+          "type": "array"
+        }
+      },
+      "required": [
+        "block_id",
+        "kind",
+        "statement",
+        "plan_ids",
+        "numeric_literals"
+      ],
+      "title": "Commitment",
+      "type": "object"
+    },
+    "CrossReview": {
+      "additionalProperties": false,
+      "properties": {
+        "content_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Content Sha256",
+          "type": "string"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/CrossReviewItem"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Sections",
+          "type": "array"
+        },
+        "all_plan_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 24,
+          "title": "All Plan Ids",
+          "type": "array"
+        },
+        "conflicts": {
+          "items": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Conflicts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "content_sha256",
+        "sections",
+        "all_plan_ids",
+        "conflicts"
+      ],
+      "title": "CrossReview",
+      "type": "object"
+    },
+    "CrossReviewItem": {
+      "additionalProperties": false,
+      "properties": {
+        "section_id": {
+          "title": "Section Id",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "passed",
+            "needs_revision",
+            "needs_input"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "section_id",
+        "verdict",
+        "reason"
+      ],
+      "title": "CrossReviewItem",
+      "type": "object"
+    },
+    "ReferenceAdmission": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "admitted",
+          "default": "admitted",
+          "title": "Status",
+          "type": "string"
+        },
+        "provenance": {
+          "enum": [
+            "current_authorized_metadata",
+            "explicit_reference_fixture"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "context_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Context Sha256",
+          "type": "string"
+        },
+        "references": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "References",
+          "type": "array"
+        },
+        "metadata_sources": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/ReferenceMetadataSource"
+              },
+              "maxProperties": 20,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metadata Sources"
+        }
+      },
+      "required": [
+        "provenance",
+        "context_sha256",
+        "references"
+      ],
+      "title": "ReferenceAdmission",
+      "type": "object"
+    },
+    "ReferenceMetadataSource": {
+      "additionalProperties": false,
+      "properties": {
+        "provenance": {
+          "enum": [
+            "current_authorized_source_metadata",
+            "user_confirmed"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "source_ref": {
+          "additionalProperties": true,
+          "title": "Source Ref",
+          "type": "object"
+        },
+        "file_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Sha256"
+        },
+        "representation_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Representation Id"
+        },
+        "bibliography_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bibliography Sha256"
+        }
+      },
+      "required": [
+        "provenance",
+        "source_ref"
+      ],
+      "title": "ReferenceMetadataSource",
+      "type": "object"
+    },
+    "RequestCoverage": {
+      "additionalProperties": false,
+      "properties": {
+        "content_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Content Sha256",
+          "type": "string"
+        },
+        "requests": {
+          "items": {
+            "$ref": "#/$defs/RequestCoverageItem"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Requests",
+          "type": "array"
+        },
+        "school_sections_complete": {
+          "title": "School Sections Complete",
+          "type": "boolean"
+        },
+        "performed_experiments_invented": {
+          "title": "Performed Experiments Invented",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "content_sha256",
+        "requests",
+        "school_sections_complete",
+        "performed_experiments_invented"
+      ],
+      "title": "RequestCoverage",
+      "type": "object"
+    },
+    "RequestCoverageItem": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "covered",
+            "explicit_unknown",
+            "uncovered",
+            "conflict"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "section_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 14,
+          "title": "Section Ids",
+          "type": "array"
+        },
+        "reason": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "state",
+        "section_ids",
+        "reason"
+      ],
+      "title": "RequestCoverageItem",
+      "type": "object"
+    },
+    "SchoolBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 3,
+          "pattern": "^P[1-9][0-9]?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "evidence",
+            "proposal",
+            "user_fact",
+            "limitation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "source_aliases": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Source Aliases",
+          "type": "array"
+        },
+        "user_fields": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "User Fields",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "text",
+        "claim_ids",
+        "source_aliases",
+        "user_fields"
+      ],
+      "title": "SchoolBlock",
+      "type": "object"
+    },
+    "SchoolProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": "sjtu-scs-2024-master-cn-capacity-demo/3",
+          "enum": [
+            "sjtu-scs-2024-master-cn-capacity-demo/3",
+            "sjtu-scs-2025-master-cn-capacity-demo/1"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "document_mode": {
+          "const": "capacity_demo",
+          "default": "capacity_demo",
+          "title": "Document Mode",
+          "type": "string"
+        },
+        "source_url": {
+          "default": "https://cs.sjtu.edu.cn/en/Graduate_Announcements/1086.html",
+          "enum": [
+            "https://cs.sjtu.edu.cn/en/Graduate_Announcements/1086.html",
+            "https://www.cs.sjtu.edu.cn/bsyjs_notice/1931.html"
+          ],
+          "title": "Source Url",
+          "type": "string"
+        },
+        "template_sha256": {
+          "const": "6bd1b4efb2106451686f15c406b9ae03b586939eca0d81604f20ab2c75a2da8d",
+          "default": "6bd1b4efb2106451686f15c406b9ae03b586939eca0d81604f20ab2c75a2da8d",
+          "title": "Template Sha256",
+          "type": "string"
+        },
+        "csl_sha256": {
+          "const": "0ca3d2c7c881cd98cdd81098b5349f5921edf430498aa9a5a41918621cf7cc45",
+          "default": "0ca3d2c7c881cd98cdd81098b5349f5921edf430498aa9a5a41918621cf7cc45",
+          "title": "Csl Sha256",
+          "type": "string"
+        },
+        "scope": {
+          "default": "2024_grade_SJTU_SCS_master_public_template_not_universal_current_school_policy",
+          "enum": [
+            "2024_grade_SJTU_SCS_master_public_template_not_universal_current_school_policy",
+            "2025_grade_SJTU_SCS_master_public_template_not_universal_current_school_policy"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "literature_minimum_han": {
+          "const": 5000,
+          "default": 5000,
+          "title": "Literature Minimum Han",
+          "type": "integer"
+        },
+        "demonstration_minimum_han": {
+          "const": 8000,
+          "default": 8000,
+          "title": "Demonstration Minimum Han",
+          "type": "integer"
+        },
+        "demonstration_maximum_han": {
+          "const": 12000,
+          "default": 12000,
+          "title": "Demonstration Maximum Han",
+          "type": "integer"
+        },
+        "demonstration_length_is_school_rule": {
+          "const": false,
+          "default": false,
+          "title": "Demonstration Length Is School Rule",
+          "type": "boolean"
+        },
+        "maximum_writing_model_calls": {
+          "const": 36,
+          "default": 36,
+          "title": "Maximum Writing Model Calls",
+          "type": "integer"
+        },
+        "per_call_output_maximum": {
+          "const": 2048,
+          "default": 2048,
+          "title": "Per Call Output Maximum",
+          "type": "integer"
+        },
+        "maximum_target_repairs": {
+          "const": 2,
+          "default": 2,
+          "title": "Maximum Target Repairs",
+          "type": "integer"
+        },
+        "maximum_blocks_per_section": {
+          "const": 3,
+          "default": 3,
+          "title": "Maximum Blocks Per Section",
+          "type": "integer"
+        },
+        "section_wire_overhead_bytes": {
+          "const": 600,
+          "default": 600,
+          "title": "Section Wire Overhead Bytes",
+          "type": "integer"
+        },
+        "cross_review_mode": {
+          "const": "all14_full_literal_sections",
+          "default": "all14_full_literal_sections",
+          "title": "Cross Review Mode",
+          "type": "string"
+        }
+      },
+      "title": "SchoolProfile",
+      "type": "object"
+    },
+    "SchoolSection": {
+      "additionalProperties": false,
+      "properties": {
+        "section_id": {
+          "title": "Section Id",
+          "type": "string"
+        },
+        "brief_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Brief Sha256",
+          "type": "string"
+        },
+        "blocks": {
+          "items": {
+            "$ref": "#/$defs/SchoolBlock"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Blocks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "section_id",
+        "brief_sha256",
+        "blocks"
+      ],
+      "title": "SchoolSection",
+      "type": "object"
+    },
+    "SectionReview": {
+      "additionalProperties": false,
+      "properties": {
+        "section_id": {
+          "title": "Section Id",
+          "type": "string"
+        },
+        "content_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Content Sha256",
+          "type": "string"
+        },
+        "blocks": {
+          "items": {
+            "$ref": "#/$defs/BlockReview"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Blocks",
+          "type": "array"
+        },
+        "covered_plan_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 24,
+          "title": "Covered Plan Ids",
+          "type": "array"
+        },
+        "commitments": {
+          "items": {
+            "$ref": "#/$defs/Commitment"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Commitments",
+          "type": "array"
+        },
+        "fabricated_completed_work": {
+          "title": "Fabricated Completed Work",
+          "type": "boolean"
+        },
+        "source_instruction_injection": {
+          "title": "Source Instruction Injection",
+          "type": "boolean"
+        },
+        "unapproved_resource_or_identity": {
+          "title": "Unapproved Resource Or Identity",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "section_id",
+        "content_sha256",
+        "blocks",
+        "covered_plan_ids",
+        "commitments",
+        "fabricated_completed_work",
+        "source_instruction_injection",
+        "unapproved_resource_or_identity"
+      ],
+      "title": "SectionReview",
+      "type": "object"
+    },
+    "SectionSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_]{1,40}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "group": {
+          "enum": [
+            "review",
+            "objectives",
+            "methods",
+            "innovation",
+            "schedule",
+            "prior"
+          ],
+          "title": "Group",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 150,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "minimum_han": {
+          "maximum": 1500,
+          "minimum": 0,
+          "title": "Minimum Han",
+          "type": "integer"
+        },
+        "maximum_han": {
+          "maximum": 1500,
+          "minimum": 1,
+          "title": "Maximum Han",
+          "type": "integer"
+        },
+        "required_plan_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 24,
+          "title": "Required Plan Ids",
+          "type": "array"
+        },
+        "user_fields": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "User Fields",
+          "type": "array"
+        },
+        "allowed_claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Allowed Claim Ids",
+          "type": "array"
+        },
+        "allowed_source_aliases": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Allowed Source Aliases",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "group",
+        "title",
+        "purpose",
+        "minimum_han",
+        "maximum_han",
+        "required_plan_ids",
+        "user_fields",
+        "allowed_claim_ids",
+        "allowed_source_aliases"
+      ],
+      "title": "SectionSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "citequest-school-document/3",
+      "enum": [
+        "citequest-school-document/3",
+        "citequest-school-document/4"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "profile": {
+      "$ref": "#/$defs/SchoolProfile"
+    },
+    "brief_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Brief Sha256",
+      "type": "string"
+    },
+    "reviewed_plan_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Reviewed Plan Sha256",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/SchoolSection"
+      },
+      "maxItems": 14,
+      "minItems": 14,
+      "title": "Sections",
+      "type": "array"
+    },
+    "section_specs": {
+      "items": {
+        "$ref": "#/$defs/SectionSpec"
+      },
+      "maxItems": 14,
+      "minItems": 14,
+      "title": "Section Specs",
+      "type": "array"
+    },
+    "source_aliases": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "maxProperties": 20,
+      "minProperties": 1,
+      "title": "Source Aliases",
+      "type": "object"
+    },
+    "section_reviews": {
+      "items": {
+        "$ref": "#/$defs/SectionReview"
+      },
+      "maxItems": 14,
+      "minItems": 14,
+      "title": "Section Reviews",
+      "type": "array"
+    },
+    "cross_review": {
+      "$ref": "#/$defs/CrossReview"
+    },
+    "request_coverage": {
+      "$ref": "#/$defs/RequestCoverage"
+    },
+    "reference_admission": {
+      "$ref": "#/$defs/ReferenceAdmission"
+    },
+    "context_manifest": {
+      "additionalProperties": true,
+      "title": "Context Manifest",
+      "type": "object"
+    },
+    "performed_experiments": {
+      "const": false,
+      "default": false,
+      "title": "Performed Experiments",
+      "type": "boolean"
+    },
+    "submission_ready": {
+      "const": false,
+      "default": false,
+      "title": "Submission Ready",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "profile",
+    "brief_sha256",
+    "reviewed_plan_sha256",
+    "title",
+    "sections",
+    "section_specs",
+    "source_aliases",
+    "section_reviews",
+    "cross_review",
+    "request_coverage",
+    "reference_admission",
+    "context_manifest"
+  ],
+  "title": "SchoolDocument",
+  "type": "object",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "citequest-school-document/3"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "profile": {
+            "properties": {
+              "id": {
+                "const": "sjtu-scs-2024-master-cn-capacity-demo/3"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "citequest-school-document/4"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "profile": {
+            "properties": {
+              "id": {
+                "const": "sjtu-scs-2025-master-cn-capacity-demo/1"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

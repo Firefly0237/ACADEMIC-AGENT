@@ -18,15 +18,15 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from citequest.search_v3.schemas import PaperDetail, PaperLocator
 
 from .school_contracts import (
-    CSL_SHA,
-    TEMPLATE_SHA,
     TOKEN,
     SchoolDocument,
+    SchoolProfile,
     han,
     review_issues,
     section_wire_bytes,
     section_wire_limit,
 )
+from .school_profiles import get_profile
 
 NS = {
     "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
@@ -61,17 +61,23 @@ def reference_context(state: dict) -> dict:
 
 
 def reference_preflight(
-    state: dict, *, read_evidence: Callable[[str], dict], read_paper: Callable[[PaperLocator], PaperDetail]
+    state: dict, *, read_evidence: Callable[[str], dict], read_paper: Callable[[PaperLocator], PaperDetail],
+    read_material_bibliography: Callable[[str], dict] | None = None,
 ) -> dict:
     """Inject as a server-owned callback before any school-writing model call."""
     from citequest.agents_v3.contracts import digest
 
     context = reference_context(state)
+    metadata_sources: dict[str, dict] = {}
+    references = reference_metadata(context["aliases"], context["evidence_refs"], read_evidence, read_paper,
+        read_material_bibliography=read_material_bibliography, metadata_sources=metadata_sources)
     return {
         "status": "admitted",
         "provenance": "current_authorized_metadata",
         "context_sha256": digest(context),
-        "references": reference_metadata(context["aliases"], context["evidence_refs"], read_evidence, read_paper),
+        "references": references,
+        **({"metadata_sources": metadata_sources} if any(value["provenance"] == "user_confirmed"
+            for value in metadata_sources.values()) else {}),
     }
 
 
@@ -80,6 +86,8 @@ def reference_metadata(
     expected_refs: list[dict],
     read_evidence: Callable[[str], dict],
     read_paper: Callable[[PaperLocator], PaperDetail],
+    *, read_material_bibliography: Callable[[str], dict] | None = None,
+    metadata_sources: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Only current real source metadata supplies bibliography. Never model fields."""
     expected = {item["ref_id"]: item for item in expected_refs}
@@ -88,6 +96,7 @@ def reference_metadata(
         if not re.fullmatch(r"S[1-9][0-9]*", alias) or not identifiers:
             raise ValueError("invalid reference alias")
         locator = None
+        material_evidence = []
         for identifier in identifiers:
             actual = read_evidence(identifier)
             if identifier not in expected or any(
@@ -95,12 +104,57 @@ def reference_metadata(
                 for key in ("source_ref", "source_sha256", "unit_text_sha256")
             ):
                 raise ValueError("reference source changed or is outside the document context")
-            if actual["source_ref"].get("kind") == "material_file":
-                raise ValueError("material_bibliographic_metadata_confirmation_required")
-            current_locator = PaperLocator.model_validate(actual["source_ref"], strict=True)
+            selection = actual.get("selection") or {}
+            source = actual["source_ref"]
+            material_ids = {str(value) for value in (actual.get("file_id"),
+                selection.get("id") if selection.get("kind") == "material_file" else None,
+                source.get("id") if source.get("kind") == "material_file" else None) if value is not None}
+            if len(material_ids) > 1:
+                raise ValueError("material bibliography identities disagree")
+            if source.get("kind") == "material_fragment" and not material_ids:
+                raise ValueError("material bibliography file identity missing")
+            current_locator = ("material_file", next(iter(material_ids))) if material_ids else PaperLocator.model_validate(source, strict=True)
             if locator is not None and locator != current_locator:
                 raise ValueError("one bibliography alias cannot merge unrelated papers")
             locator = current_locator
+            if material_ids:
+                material_evidence.append(actual)
+        if isinstance(locator, tuple):
+            if read_material_bibliography is None:
+                raise ValueError("material_bibliographic_metadata_confirmation_required")
+            from citequest.agents_v3.contracts import canonical, digest
+            from .brief import MaterialBibliography
+
+            current = read_material_bibliography(locator[1])
+            # Persisted JSON carries UUIDs as strings. Keep strict JSON semantics
+            # rather than treating those strings as in-memory Python UUIDs.
+            record = MaterialBibliography.model_validate_json(canonical(current["bibliography"]), strict=True)
+            metadata_sha256 = digest(record.model_dump(mode="json"))
+            source_pin = current.get("source") or {}
+            if (str(record.file_id) != locator[1] or current.get("provenance") != "user_confirmed"
+                or current.get("bibliography_sha256") != metadata_sha256
+                or source_pin.get("file_id") != locator[1] or source_pin.get("file_sha256") != record.file_sha256
+                or source_pin.get("representation_id") != record.representation_id
+                or any((value.get("source_file_sha256") is not None and value["source_file_sha256"] != record.file_sha256)
+                    or (value.get("representation_id") is not None and value["representation_id"] != record.representation_id)
+                    or ((value.get("source_version_pin") or {}).get("source_file_sha256") is not None
+                        and value["source_version_pin"]["source_file_sha256"] != record.file_sha256)
+                    or ((value.get("source_version_pin") or {}).get("representation_id") is not None
+                        and value["source_version_pin"]["representation_id"] != record.representation_id)
+                    for value in material_evidence)):
+                raise ValueError("material bibliography no longer matches the authorized source")
+            item = {"id": alias, "type": "article", "title": record.title,
+                "author": [{"literal": author} for author in record.authors], "issued": {"date-parts": [[record.year]]}}
+            if record.doi:
+                item["DOI"] = record.doi
+            if record.source_url:
+                item["URL"] = record.source_url
+            if metadata_sources is not None:
+                metadata_sources[alias] = {"provenance": "user_confirmed", "source_ref": {"kind": "material_file", "id": locator[1]},
+                    "file_sha256": record.file_sha256, "representation_id": record.representation_id,
+                    "bibliography_sha256": metadata_sha256}
+            references.append(item)
+            continue
         detail = read_paper(locator)
         if not isinstance(detail, PaperDetail) or detail.paper != locator:
             raise ValueError("current bibliography metadata contract mismatch")
@@ -118,25 +172,40 @@ def reference_metadata(
                 raise ValueError("unsafe bibliography source URL")
             item["URL"] = detail.source_url
         # A DOI, journal or venue absent from the actual PaperDetail is omitted.
+        if metadata_sources is not None:
+            metadata_sources[alias] = {"provenance": "current_authorized_source_metadata", "source_ref": locator.model_dump(mode="json")}
         references.append(item)
     return references
 
 
 def current_references(
-    document: SchoolDocument, read_evidence: Callable[[str], dict], read_paper: Callable[[PaperLocator], PaperDetail]
+    document: SchoolDocument, read_evidence: Callable[[str], dict], read_paper: Callable[[PaperLocator], PaperDetail],
+    *, read_material_bibliography: Callable[[str], dict] | None = None,
 ) -> list[dict]:
     used = {alias for section in document.sections for alias in TOKEN.findall(section.body())}
-    return reference_metadata(
+    metadata_sources: dict[str, dict] = {}
+    references = reference_metadata(
         {alias: refs for alias, refs in document.source_aliases.items() if alias in used},
         document.context_manifest["evidence_refs"],
         read_evidence,
         read_paper,
+        read_material_bibliography=read_material_bibliography,
+        metadata_sources=metadata_sources,
     )
+    admitted = document.reference_admission.metadata_sources
+    if admitted:
+        if metadata_sources != {alias: admitted[alias].model_dump(mode="json") for alias in used}:
+            raise ValueError("confirmed bibliography provenance or source version changed")
+    elif any(value["provenance"] == "user_confirmed" for value in metadata_sources.values()):
+        raise ValueError("material bibliography was not admitted with versioned provenance")
+    return references
 
 
 def validate_export_document(document: SchoolDocument) -> None:
     from citequest.agents_v3.contracts import digest
 
+    if document.profile != get_profile(document.profile.id):
+        raise ValueError("registered_school_export_profile_required")
     if (
         document.content_hash() != document.cross_review.content_sha256
         or document.content_hash() != document.request_coverage.content_sha256
@@ -174,7 +243,8 @@ def validate_export_document(document: SchoolDocument) -> None:
         if spec.group == "review"
     )
     total_han = sum(han(section.body()) for section in document.sections)
-    if review_han < 5000 or not 8000 <= total_han <= 12000:
+    if (review_han < document.profile.literature_minimum_han
+        or not document.profile.demonstration_minimum_han <= total_han <= document.profile.demonstration_maximum_han):
         raise ValueError("school literature and project capacity gates must both pass")
     if digest(document.profile.model_dump(mode="json")) != document.context_manifest.get("school_profile_sha256"):
         raise ValueError("school profile changed since content review")
@@ -189,12 +259,13 @@ def export_school_document(
     authorize_manifest: Callable[[dict], None],
     read_evidence: Callable[[str], dict],
     read_paper: Callable[[PaperLocator], PaperDetail],
+    read_material_bibliography: Callable[[str], dict] | None = None,
 ) -> dict:
     authorize_manifest(document.context_manifest)
     if document.reference_admission.provenance != "current_authorized_metadata":
         raise ValueError("explicit_reference_fixture_is_not_a_product_export")
     validate_export_document(document)
-    references = current_references(document, read_evidence, read_paper)
+    references = current_references(document, read_evidence, read_paper, read_material_bibliography=read_material_bibliography)
     groups: dict[str, str] = {key: "" for key in SLOTS if key != "references"}
     for spec, section in zip(document.section_specs, document.sections, strict=True):
         groups[spec.group] += "## " + spec.title + "\n\n" + section.body() + "\n\n"
@@ -207,10 +278,11 @@ def export_school_document(
         csl=csl,
         mode="reviewed_school_draft",
         content_sha256=document.content_hash(),
+        profile=document.profile,
     )
     # Do not release a completed export if authority changed while conversion ran.
     authorize_manifest(document.context_manifest)
-    current_references(document, read_evidence, read_paper)
+    current_references(document, read_evidence, read_paper, read_material_bibliography=read_material_bibliography)
     return receipt
 
 
@@ -224,6 +296,7 @@ def render_template(
     csl: Path,
     mode: str,
     content_sha256: str,
+    profile: SchoolProfile | None = None,
 ) -> dict:
     """Shared physical renderer; layout_fixture mode is never school-quality PASS."""
     import pypandoc
@@ -236,11 +309,14 @@ def render_template(
     from docxtpl import DocxTemplate
     from lxml import etree as ET
 
+    selected_profile = get_profile(profile.id if profile is not None else None)
+    if profile is not None and profile != selected_profile:
+        raise ValueError("registered_school_export_profile_required")
     if mode not in {"reviewed_school_draft", "explicit_layout_fixture"}:
         raise ValueError("explicit export scope required")
     if output.exists():
         raise FileExistsError("preserve prior exports; use a fresh artifact version directory")
-    if sha(template.read_bytes()) != TEMPLATE_SHA or sha(csl.read_bytes()) != CSL_SHA:
+    if sha(template.read_bytes()) != selected_profile.template_sha256 or sha(csl.read_bytes()) != selected_profile.csl_sha256:
         raise ValueError("school source template or CSL pin changed")
     if set(groups) != set(SLOTS) - {"references"}:
         raise ValueError("all official content slots must be present")
@@ -526,7 +602,7 @@ def render_template(
             archive.writestr(name, content)
     document_root = ET.fromstring(final_parts["word/document.xml"])
     checks = {
-        "source_template_unchanged": sha(template.read_bytes()) == TEMPLATE_SHA,
+        "source_template_unchanged": sha(template.read_bytes()) == selected_profile.template_sha256,
         "all_seven_official_heading_spacer_chains_keep_with_content": len(heading_chains) == 7,
         "source_two_sections_preserved": len(document_root.xpath("//w:sectPr", namespaces=NS))
         == len(original.xpath("//w:sectPr", namespaces=NS))
@@ -572,8 +648,8 @@ def render_template(
         "status": "structure_passed_render_and_visual_pending",
         "scope": mode,
         "content_sha256": content_sha256,
-        "template_sha256": TEMPLATE_SHA,
-        "csl_sha256": CSL_SHA,
+        "template_sha256": selected_profile.template_sha256,
+        "csl_sha256": selected_profile.csl_sha256,
         "docx_sha256": sha(final.read_bytes()),
         "html_sha256": sha((output / "proposal.html").read_bytes()),
         "bibliography_sha256": sha(bibliography.read_bytes()),
@@ -586,6 +662,8 @@ def render_template(
         "font_mapping": "Source retained; generated body requests 楷体 12pt and Times New Roman; renderer substitutions must be audited separately.",
         "pandoc_version": str(pypandoc.get_pandoc_version()),
     }
+    if selected_profile.id != SchoolProfile().id:
+        receipt.update(school_profile_id=selected_profile.id, school_source_url=selected_profile.source_url)
     (output / "export-receipt.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
     return receipt
 
