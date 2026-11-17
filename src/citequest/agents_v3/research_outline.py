@@ -249,7 +249,8 @@ class ResearchOutlineFlow:
             handoffs.append(self.boundary.handoff_entry("reviewer", control["review"], sources=sources,
                 parents={"outline": digest(control["candidate"])}))
             return {"outline": control["candidate"], "outline_review": control["review"],
-                "research_capacity": control["admission"], "handoffs": handoffs, "next": "literature_search"}
+                "research_capacity": control["admission"], "handoffs": handoffs,
+                "next": "execution_plan_prepare" if self.boundary.plan_approval_enabled() else "literature_search"}
         capacity_limited = control.get("failure") == "complete_research_and_school_capacity_unavailable"
         result = {"status": "partial" if capacity_limited else "failed",
             "publication_status": "not_evaluated" if capacity_limited else "rejected",

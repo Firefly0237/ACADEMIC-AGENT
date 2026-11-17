@@ -189,11 +189,18 @@ def build_server(config: ToolConfig) -> FastMCP:
                             if material is None:
                                 raise AgentError('material_semantic_index_not_configured', 503)
                             material.validate_selection(Actor(task['owner_id']), files)
-                        eligible_issued = [item for item in issued if task['brief']['kind'] != 'research' or reference_allows(task['brief'], item)]
+                        eligible_issued = [item for item in issued if item.get('evidence_type') != 'source_structure_scope'
+                            and (task['brief']['kind'] != 'research' or reference_allows(task['brief'], item))]
                         catalog_pins.authorize_evidence(Actor(task['owner_id']), config.task_id, eligible_issued)
                     else:
                         admit_scope(Actor(task["owner_id"]), ResearchBrief.model_validate_json(json.dumps(task["brief"]), strict=True), search, material)
                     for item in issued:
+                        if item.get("evidence_type") == "source_structure_scope":
+                            from citequest.research_v3.evidence import EvidenceAccess
+                            EvidenceAccess(BusinessCatalogDB(config.business_dsn_file, config.catalog_scope_policy), search, material).read(
+                                Actor(task["owner_id"]), config.task_id, item["ref_id"])
+                            checked += 1
+                            continue
                         if item.get("source_ref", {}).get("kind") == "workset_manifest":
                             continue  # Durable control metadata, never a Paper EvidenceDTO.
                         if task["brief"]["kind"] == "research" and not reference_allows(task["brief"], item):
@@ -356,6 +363,17 @@ def build_server(config: ToolConfig) -> FastMCP:
         return navigate_task_evidence(navigation_config, query, ref_ids, access=qa5_tools.access,
             context=context, remaining_ms=remaining_ms)
 
+    @server.tool()
+    def navigate_source_structure(query: Annotated[str, Field(min_length=1, max_length=8000)],
+            ref_ids: Annotated[list[str], Field(max_length=20)],
+            remaining_ms: Annotated[int, Field(ge=1, le=120000)]) -> dict:
+        """Route compact selected-source nodes and issue currently authorized original ranges."""
+        if navigation_config is None or navigation_config.navigation_protocol not in {"structure1", "structure2"} or qa5_tools is None:
+            raise AgentError("structure_navigation_runtime_not_configured")
+        from citequest.research_v3.structured_navigation_task import navigate_task_sources
+        return navigate_task_sources(navigation_config, query, ref_ids, access=qa5_tools.access,
+            context=context, register=register, remaining_ms=remaining_ms)
+
     if navigation_config is not None and navigation_config.navigation_protocol == "laya2":
         @server.tool()
         def navigate_issued_evidence(query: Annotated[str, Field(min_length=1, max_length=8000)],
@@ -453,8 +471,8 @@ def build_server(config: ToolConfig) -> FastMCP:
         if initial["brief"]["kind"] == "research" else {"plan_workset", "read_source_window", "verify_evidence_batch"}
         if workset_kind else {"search_evidence", "read_evidence"})
     if navigation_config is not None:
-        allowed.add("navigate_issued_evidence")
-    for name in {"navigate_issued_evidence", "search_chunk_evidence", "search_evidence", "read_evidence", "plan_workset", "read_source_window", "verify_evidence_batch"} - allowed:
+        allowed.add("navigate_source_structure" if navigation_config.navigation_protocol in {"structure1", "structure2"} else "navigate_issued_evidence")
+    for name in {"navigate_source_structure", "navigate_issued_evidence", "search_chunk_evidence", "search_evidence", "read_evidence", "plan_workset", "read_source_window", "verify_evidence_batch"} - allowed:
         server.remove_tool(name)
 
     private_runtime_observation("mcp_server_boot","tool_registration","completed",task_id=config.task_id,

@@ -179,7 +179,7 @@ class TaskService:
         if campaign is not None:
             profile[campaign_control.BINDING_KEY] = campaign.task_binding()
         graph_version = catalog_scope.graph_version(request.kind, request.profile_id, self.database.catalog_scope_policy,
-            profile.get("review_transport_protocol"), profile.get("qa_execution_protocol"), profile.get("review_api_protocol"), profile.get("structured_output_protocol"), profile.get("answer_revision_protocol"), profile.get("qa_context_protocol"), profile.get("qa_content_protocol"), profile.get("evidence_navigation_protocol"), profile.get("retrieval_rerank_protocol"), profile.get("rerank_config_sha256"), profile.get("qa_retrieval_protocol"))
+            profile.get("review_transport_protocol"), profile.get("qa_execution_protocol"), profile.get("review_api_protocol"), profile.get("structured_output_protocol"), profile.get("answer_revision_protocol"), profile.get("qa_context_protocol"), profile.get("qa_content_protocol"), profile.get("evidence_navigation_protocol"), profile.get("retrieval_rerank_protocol"), profile.get("rerank_config_sha256"), profile.get("qa_retrieval_protocol"), execution_plan=request.brief.execution_plan_protocol)
         preview = ({"id": active_policy.target.task_id, "owner_id": owner, "project_id": request.project_id,
             "operation_id": request.operation_id, "create_hash": request_hash, "kind": request.kind,
             "profile": profile, "profile_hash": digest(profile), "graph_version": graph_version} if active_policy is not None else None)
@@ -208,6 +208,8 @@ class TaskService:
                 self.new_task_profile_policy.admit(request)
             elif request.profile_id in {"research-review-v1", "research-revision-v1"}:
                 raise AgentError("research_auxiliary_action_not_enabled", 503)
+            from .product_profiles import require_navigation_source_selection
+            require_navigation_source_selection(profile, request.brief.model_dump(mode="json"))
             if request.profile_id in {"research-review-v1", "research-revision-v1"}:
                 # wallet_locks above serializes admission across clients and
                 # refreshes. Original operation replays already returned above.
@@ -303,6 +305,13 @@ class TaskService:
                 campaign_control.require_runtime_task(task, campaign)
             if task["revision"] != request.expected_revision:
                 raise AgentError("agent_revision_conflict")
+            if request.kind != "cancel":
+                from .execution_plan import pending_plan, validate_plan_decision
+                pending = pending_plan(task)
+                if request.plan_decision is not None:
+                    validate_plan_decision(task, request.plan_decision)
+                elif request.kind == "resume" and pending is not None:
+                    raise AgentError("execution_plan_decision_required", 409)
             if request.requested_direction is not None and task["kind"] != "stance":
                 raise AgentError("requested_direction_requires_stance", 400)
             if request.research_brief is not None and task["kind"] != "research":
@@ -332,7 +341,8 @@ class TaskService:
                 if self.database.catalog_scope_policy is not None and not catalog_scope.current_runtime(task, self.database.catalog_scope_policy):
                     raise AgentError('task_catalog_pinned_runtime_required', 503)
                 allowed = {"resume": {"waiting_input"}, "followup": {"succeeded", "partial"}}[request.kind]
-                if task["state"] not in allowed or not request.message.strip() or task["cancellation_requested"]:
+                if (task["state"] not in allowed or (not request.message.strip() and request.plan_decision is None)
+                        or task["cancellation_requested"]):
                     raise AgentError("agent_command_not_admissible")
                 if db.execute("SELECT 1 FROM cq_app.agent_attempts WHERE task_id=%s AND status IN ('reserved','sent','unknown')", (task_id,)).fetchone():
                     raise AgentError("agent_attempt_unresolved")
@@ -352,7 +362,7 @@ class TaskService:
                 for expired in dispatch_control.expire_queued(db, policy):
                     event(db, expired["id"], "queue_deadline_expired", {"command_id": str(expired["command_id"]), "error_code": expired["error_code"]})
                 dispatch_control.research_admit(db, task["kind"], policy)
-                brief = {**task["brief"], "question": request.message}
+                brief = {**task["brief"], **({"question": request.message} if request.plan_decision is None else {})}
                 # The selector applies to one submitted turn, never to a later follow-up by inheritance.
                 brief.pop("reference_turn_seq", None)
                 if request.reference_turn_seq is not None:
@@ -392,6 +402,8 @@ class TaskService:
                 (uuid4(), task_id, owner, request.operation_id, seq, request.kind, Jsonb(payload), request_hash,
                  "done" if request.kind == "cancel" else "queued"))
             command_event = {"kind": request.kind, "command_seq": seq}
+            if request.plan_decision is not None:
+                command_event.update(plan_sha256=request.plan_decision.plan_sha256, plan_action=request.plan_decision.action)
             if active_policy is not None:
                 command_event["development_dispatch"] = active_policy.public_binding()
             if campaign is not None and task["profile"].get(campaign_control.BINDING_KEY) == campaign.task_binding():
@@ -819,11 +831,10 @@ class Execution:
                 AND error_code IS NULL AND jsonb_typeof(response)='object'""", (self.task_id, keys)).fetchall()
             return {row["logical_key"] for row in rows}
 
-    def settled_model_receipts(self, logical_keys: list[str]) -> dict[str, dict]:
-        """One current-owner read for immutable handoff links in this command."""
+    def settled_model_receipts(self, logical_keys: list[str], *, approved_plan: dict | None = None) -> dict[str, dict]:
+        """Read settled links in this command, with one explicitly approved plan origin."""
         if (not isinstance(logical_keys, list) or len(logical_keys) > 128
-                or any(not isinstance(key, str) or not 1 <= len(key) <= 256
-                       or not key.startswith(str(self.command["id"]) + ":") for key in logical_keys)):
+                or any(not isinstance(key, str) or not 1 <= len(key) <= 256 for key in logical_keys)):
             raise AgentError("handoff_receipt_command_identity_invalid")
         keys = list(dict.fromkeys(logical_keys))
         if not keys:
@@ -831,6 +842,31 @@ class Execution:
         from .model_receipts import model_receipt
         with self.database.connect() as db:
             task = self.lock_task(db)
+            prefixes = [str(self.command["id"]) + ":"]
+            if approved_plan is not None:
+                from .contracts import PlanDecision
+                try:
+                    decision = PlanDecision.model_validate(self.command.get("payload", {}).get("plan_decision"), strict=True)
+                    origin = UUID(approved_plan["origin_command_id"])
+                    if (task.get("kind") != "research" or task.get("profile", {}).get("profile_id") != "research-v6"
+                            or task.get("brief", {}).get("execution_plan_protocol") != "approval1"
+                            or approved_plan.get("protocol") != "approval1"
+                            or approved_plan.get("task_id") != str(self.task_id)
+                            or approved_plan["origin_command_id"] != str(origin)
+                            or self.command["kind"] != "resume" or decision.action != "approve"
+                            or decision.plan_sha256 != digest(approved_plan)):
+                        raise AgentError("handoff_receipt_plan_approval_invalid")
+                except (ValueError, TypeError, KeyError):
+                    raise AgentError("handoff_receipt_plan_approval_invalid") from None
+                previous = db.execute("""SELECT id FROM cq_app.agent_commands
+                    WHERE id=%s AND task_id=%s AND owner_id=%s AND state='done'
+                      AND kind <> 'cancel' AND seq < %s""",
+                    (origin, self.task_id, task["owner_id"], self.command["seq"])).fetchone()
+                if previous is None:
+                    raise AgentError("handoff_receipt_plan_origin_invalid")
+                prefixes.append(str(origin) + ":")
+            if any(not key.startswith(tuple(prefixes)) for key in keys):
+                raise AgentError("handoff_receipt_command_identity_invalid")
             rows = db.execute("""SELECT id,logical_key,request,request_hash,response,usage,status,error_code
                 FROM cq_app.agent_attempts WHERE task_id=%s AND kind='model' AND logical_key=ANY(%s)""",
                 (self.task_id, keys)).fetchall()
@@ -1294,8 +1330,12 @@ class Execution:
 
 @contextmanager
 def claim(database: Database, worker_id: str, *, limits: RuntimeLimits,
-          task_id: UUID | None = None) -> Iterator[Execution | None]:
+          task_id: UUID | None = None, eligible_graph_versions: tuple[str, ...] | None = None) -> Iterator[Execution | None]:
     """Lease expiry is a recovery hint; only the physical session lock grants ownership."""
+    known_graphs = catalog_scope.graph_versions(database.catalog_scope_policy)
+    if eligible_graph_versions is not None and (not eligible_graph_versions or not set(eligible_graph_versions)<=set(known_graphs)):
+        raise AgentError("worker_graph_admission_invalid")
+    admitted_graphs = list(known_graphs if eligible_graph_versions is None else eligible_graph_versions)
     development_policy = getattr(database, "development_dispatch_policy", None)
     if development_policy is not None:
         # The direct claim entry must be as narrow as Worker.run_once. A policy
@@ -1340,8 +1380,8 @@ def claim(database: Database, worker_id: str, *, limits: RuntimeLimits,
                 (SELECT 1 FROM cq_app.agent_attempts a WHERE a.task_id=t.id AND a.status IN ('reserved','sent','unknown'))))
             AND (%s::uuid IS NULL OR t.id=%s) AND t.graph_version=ANY(%s)
             ORDER BY c.created_at,c.seq LIMIT 16"""
-        candidate_params = ((task_id, task_id, list(catalog_scope.graph_versions(database.catalog_scope_policy)), kinds, kinds, True, True)
-            if policy is not None else (task_id, task_id, list(catalog_scope.graph_versions(database.catalog_scope_policy))))
+        candidate_params = ((task_id, task_id, admitted_graphs, kinds, kinds, True, True)
+            if policy is not None else (task_id, task_id, admitted_graphs))
         scope_sql, scope_params = (campaign.queue_predicate() if campaign is not None else
             (" AND NOT(t.profile ? 'development_campaign')", ()))
         candidate_sql = candidate_sql.replace("ORDER BY c.created_at,c.seq LIMIT 16", scope_sql + " ORDER BY c.created_at,c.seq LIMIT 16")

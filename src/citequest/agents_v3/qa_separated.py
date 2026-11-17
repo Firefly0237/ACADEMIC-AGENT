@@ -289,8 +289,15 @@ class QASeparated(QA9):
                 requirements_effective_sha256=prompt["current_requirements"]["sha256"],
                 requirements_effective_status="independently_reviewed_pending_answer_commit")
             if state["qa5"].get("evidence_navigation") is not None:
-                prompt["evidence_navigation_scope"] = state["qa5"]["evidence_navigation"]
-                manifest["evidence_navigation"] = copy.deepcopy(state["qa5"]["evidence_navigation"])
+                navigation = state["qa5"]["evidence_navigation"]
+                if navigation.get("protocol") in {"structure1", "structure2"}:
+                    summary = {key: navigation.get(key) for key in ("protocol", "status", "evidence_ref_ids", "resource_admission")}
+                    summary["structure"] = {key: navigation["structure"].get(key) for key in ("scope", "scope_ref_id", "limitations")}
+                    prompt["evidence_navigation_scope"] = summary
+                    manifest["evidence_navigation"] = copy.deepcopy(summary)
+                else:
+                    prompt["evidence_navigation_scope"] = navigation
+                    manifest["evidence_navigation"] = copy.deepcopy(navigation)
         return prompt, manifest
 
     def review_plan(self, state):
@@ -380,6 +387,24 @@ class QASeparated(QA9):
         if not tools.decisionrag_enabled:
             raise AgentError("decisionrag_task_configuration_unavailable", 503)
         protocol = evidence_navigation_protocol(self.graph.execution.snapshot())
+        if protocol in {"structure1", "structure2"}:
+            query = "\n".join(row["query"] for row in data["plan"]["queries"]) or data["turn"]["text"]
+            initial = [row["ref_id"] for row in state["evidence"]]
+            navigation = self.graph.wait(tools.navigate_sources(query, initial,
+                logical_key=self.key(data, "tool:source-structure"), planning_context=data["binding"]))
+            selected = navigation.get("evidence_ref_ids")
+            evidence = navigation.get("evidence")
+            if (navigation.get("status") not in {"ok", "partial"}
+                    or navigation.get("protocol") != protocol or navigation.get("navigation_protocol") != protocol
+                    or not isinstance(selected, list) or len(selected) > 20
+                    or any(not isinstance(ref, str) or not ref for ref in selected) or len(set(selected)) != len(selected)
+                    or not isinstance(evidence, list) or [row.get("ref_id") for row in evidence] != selected):
+                raise AgentError("structure_navigation_selected_reference_identity_invalid")
+            metadata = {key: value for key, value in navigation.items() if key != "evidence"}
+            metadata.update(retrieved_passages=len(initial), source_text_truncated=False,
+                full_corpus_or_full_document_coverage=False)
+            data["evidence_navigation"] = metadata
+            return {"qa5": data, "evidence": evidence, "answer": None}
         frontier = navigation_frontier(state["evidence"], tools.decisionrag_frontier_limit,
             capacity_limit=20 if protocol == "laya2" else 8)
         boundary = {"protocol": protocol, "retrieved_passages": len(state["evidence"]),

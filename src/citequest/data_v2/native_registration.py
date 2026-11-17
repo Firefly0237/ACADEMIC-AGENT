@@ -39,7 +39,11 @@ class NativePaperRegistrar:
     licence or LLM-proposed Work cannot invoke article registration through it.
     """
 
-    def __init__(self, landing: Landing, store: CAS, workspace: Path) -> None:
+    def __init__(self, landing: Landing, store: CAS, workspace: Path, *,
+                 prepare_source_structures: bool = False) -> None:
+        if type(prepare_source_structures) is not bool:
+            raise ValueError("explicit_source_structure_preparation_required")
+        self.prepare_source_structures = prepare_source_structures
         self.landing, self.catalog, self.db, self.store = landing, landing.catalog, landing.db, store
         self.root = workspace.resolve()
         app_storage(self.root).assert_store(store)
@@ -69,6 +73,9 @@ class NativePaperRegistrar:
         return raw
 
     def register(self, snapshot_id: UUID, rank: int) -> dict:
+        if self.prepare_source_structures:
+            from citequest.research_v3.source_structure_cache import require_structure_schema
+            require_structure_schema(self.db)
         if rank not in self.candidates:
             raise DomainError("not_an_audited_unique_source_candidate", 422)
         candidate, rights = self.candidates[rank], self.rights[rank]
@@ -322,6 +329,9 @@ class NativePaperRegistrar:
             )
             if event is None or event.payload_sha256 != digest(envelope):
                 raise DomainError("native_outbox_pointer_conflict", 409)
+            if self.prepare_source_structures:
+                from citequest.research_v3.source_structure_cache import cache_structure, native_structure_source
+                cache_structure(self.db, self.store, native_structure_source(draft, snapshot.security_domain))
             return result
 
         return self.catalog.operation(

@@ -40,6 +40,14 @@ def authorize_result_dependencies(
         references = {item["ref_id"] for item in result.get("citations", [])}
         references.update(item["ref_id"] for item in result.get("context_manifest", {}).get("evidence_refs", []))
         references.update(result.get("evidence_navigation", {}).get("input_frontier_ref_ids", []))
+        navigation = result.get("evidence_navigation", {})
+        if navigation.get("protocol") in {"structure1", "structure2"}:
+            structure = navigation.get("structure", {})
+            references.add(structure["scope_ref_id"])
+            references.update(navigation.get("evidence_ref_ids", []))
+            references.update(structure.get("supplemental_evidence_ref_ids", []))
+            for node in structure.get("nodes", []):
+                references.update(node.get("evidence_ref_ids", []))
         current_refs = sorted(references)
         for start in range(0, max(1, len(current_refs)), 256):
             authorize_evidence(actor, task_id, current_refs[start : start + 256])

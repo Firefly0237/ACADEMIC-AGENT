@@ -120,8 +120,18 @@ export const errorText = (e: unknown) =>
         agent_task_not_found: "任务不存在或当前账户无权读取。",
         agent_revision_conflict: "任务已在其他操作中更新，请重新打开后继续。",
         agent_attempt_unresolved: "本任务有尚未核对的调用，暂时不能继续。",
+        execution_plan_revision_conflict: "计划已更新，请重新读取并核对当前版本，再提交决定。",
+        execution_plan_approval_command_changed: "批准记录与当前执行命令不一致，请重新读取任务并核对。",
+        execution_plan_decision_required: "请先在执行计划中明确批准当前版本，或提交检索词修改。",
+        execution_plan_decision_not_admissible: "当前任务状态无法接收计划决定，请重新读取任务。",
+        execution_plan_scope_changed: "计划绑定的档案或任务范围已变化，请重新读取任务并核对。",
+        execution_plan_version_limit: "已达到计划版本上限。可以批准当前版本，或取消后重新明确要求。",
+        execution_plan_query_invalid: "检索词不能为空，且每项最多 2000 个字符。",
+        execution_plan_query_target_invalid: "修改项不属于当前计划，请重新读取并核对检索目标。",
+        execution_plan_adjustment_no_change: "检索词没有实际变化，可以直接批准当前版本。",
+        execution_plan_structure_changed: "计划步骤与当前任务不一致，暂不能执行，请重新读取任务。",
         task_catalog_pinned_runtime_required: "需要恢复与本任务匹配的执行服务后才能继续。",
-      }[e.code] || `请求未完成：${e.code}`
+      }[e.code] || "这次操作未能完成。请先刷新查看最新状态；若仍无法继续，请将问题提示和刚才的操作告知维护者。"
     : e instanceof Error
       ? e.message
       : "请求未完成";

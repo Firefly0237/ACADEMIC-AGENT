@@ -188,6 +188,10 @@ class ResearchState(LiteratureState, total=False):
     outline: dict
     outline_control: dict
     outline_review: dict
+    execution_plan: dict
+    execution_plan_decision: dict
+    execution_plan_history: list[dict]
+    execution_plan_origin_command_id: str
     research_capacity: dict
     rq_index: int
     experiment_index: int
@@ -219,6 +223,8 @@ class ResearchWorkflow:
     NODES = (
         "intake",
         "planner",
+        "execution_plan_prepare",
+        "execution_plan_approval",
         "literature_search",
         "literature_write",
         "literature_review",
@@ -290,6 +296,69 @@ class ResearchWorkflow:
     def audited_handoffs(self) -> bool:
         return self._audited_handoffs
 
+    def plan_approval_enabled(self) -> bool:
+        task = self.task()
+        protocol = task["brief"].get("execution_plan_protocol")
+        if protocol is not None and (protocol != "approval1" or task["profile"].get("profile_id") != "research-v6"
+                or task["brief"].get("research_action", "plan") not in {"plan", "experiment"}):
+            raise AgentError("execution_plan_protocol_not_supported")
+        return protocol == "approval1"
+
+    def execution_plan_prepare(self, state: dict) -> dict:
+        from .execution_plan import build_execution_plan
+        if not self.plan_approval_enabled():
+            raise AgentError("execution_plan_protocol_required")
+        origin = str(self.host.execution.command["id"])
+        plan = build_execution_plan(self.task(), {**state, "execution_plan_origin_command_id": origin})
+        return {"execution_plan": plan, "execution_plan_decision": {},
+            "execution_plan_origin_command_id": origin,
+            "execution_plan_history": [{"version": plan["version"], "plan_sha256": digest(plan),
+                "action": "proposed", "command_id": str(self.host.execution.command["id"])}],
+            "next": "execution_plan_approval"}
+
+    def execution_plan_approval(self, state: dict) -> dict:
+        from .contracts import PlanDecision
+        from .execution_plan import INTERRUPT_KIND, apply_query_adjustment, validate_execution_plan
+        plan = validate_execution_plan(state["execution_plan"], self.task(), state)
+        plan_sha = digest(plan)
+        # No model/tool dispatch or approval commit precedes this interrupt.
+        # Lease renewal and progress recording may replay with the node;
+        # only the admitted command is decision authority.
+        interrupt({"kind": INTERRUPT_KIND, "plan_sha256": plan_sha, "plan": plan})
+        command = self.host.execution.command
+        raw = command.get("payload", {}).get("plan_decision")
+        if command["kind"] != "resume" or raw is None:
+            raise AgentError("execution_plan_decision_required")
+        decision = PlanDecision.model_validate(raw, strict=True)
+        if decision.plan_sha256 != plan_sha:
+            raise AgentError("execution_plan_revision_conflict")
+        record = {"command_id": str(command["id"]),
+            "operation_id": str(command["payload"]["operation_id"]),
+            "action": decision.action, "plan_sha256": plan_sha}
+        history = [*state["execution_plan_history"], {**record, "version": plan["version"]}]
+        if decision.action == "adjust_queries":
+            candidate = apply_query_adjustment(plan, decision, self.task(), state)
+            return {"execution_plan": candidate, "execution_plan_decision": {},
+                "execution_plan_history": history, "next": "execution_plan_approval"}
+        return {"execution_plan_decision": record, "execution_plan_history": history,
+            "next": "literature_search"}
+
+    def approved_execution_plan(self, state: dict) -> dict | None:
+        if not self.plan_approval_enabled():
+            return None
+        from .execution_plan import validate_execution_plan
+        plan = validate_execution_plan(state.get("execution_plan", {}), self.task(), state)
+        decision = state.get("execution_plan_decision", {})
+        if decision.get("action") != "approve" or decision.get("plan_sha256") != digest(plan):
+            raise AgentError("execution_plan_approval_required")
+        command = self.host.execution.command
+        admitted = command.get("payload", {}).get("plan_decision", {})
+        if (command["kind"] != "resume" or str(command["id"]) != decision.get("command_id")
+                or admitted.get("action") != "approve" or admitted.get("plan_sha256") != digest(plan)):
+            raise AgentError("execution_plan_approval_command_changed")
+        return {"plan": plan, "plan_sha256": digest(plan), "decision": decision,
+            "history": state.get("execution_plan_history", [])}
+
     def missing_intake_fields(self, value: PlanningInput) -> list[BriefField]:
         return [field for field in self.required_fields if field not in value.user_confirmed
             and not (field in value.explicit_unknowns and (self.allow_explicit_unknown or field == "preliminary_work"))]
@@ -318,8 +387,15 @@ class ResearchWorkflow:
 
     def synchronized_input(self) -> PlanningInput:
         value = self.current_input()
+        def approval_reference_changed() -> bool:
+            if not self.plan_approval_enabled():
+                return False
+            reference = self.task()["brief"]["research_brief"]
+            return (str(reference["id"]), reference["revision"], reference["sha256"]) != (
+                value.brief_id, value.brief_revision, value.brief_sha256)
         while ([item.model_dump(mode="json") for item in value.selected_sources] != self.task()["brief"].get("selected_papers", [])
-               or value.draft_source_ids != self.task()["brief"].get("research_draft_files", [])):
+               or value.draft_source_ids != self.task()["brief"].get("research_draft_files", [])
+               or approval_reference_changed()):
             interrupt(
                 {
                     "kind": "scope_sync_required",
@@ -355,7 +431,13 @@ class ResearchWorkflow:
         def observed(state: dict) -> dict:
             self.host.execution.progress("research_" + phase, "started")
             try:
-                if phase != "intake" and state.get("intake"):
+                if (phase != "intake" and self.plan_approval_enabled()
+                        and state.get("execution_plan_decision", {}).get("action") == "approve"
+                        and state["execution_plan_decision"]["command_id"] != str(self.host.execution.command["id"])):
+                    # A subsequent turn cannot inherit approval or consume old
+                    # intermediate artifacts under a different command lineage.
+                    result = {"next": "intake"}
+                elif phase != "intake" and state.get("intake"):
                     current = self.synchronized_input().model_dump(mode="json")
                     if current != state["intake"]:
                         result = {"next": "intake"}
@@ -456,6 +538,9 @@ class ResearchWorkflow:
                     "scope": "retrieved_literal_spans_not_full_paper_reads", "complete_paper_read_claimed": False})
         return {
             **result,
+            **({"execution_plan": self.approved_execution_plan(state)}
+                if state.get("execution_plan_decision", {}).get("action") == "approve"
+                and state["execution_plan_decision"].get("command_id") == str(self.host.execution.command["id"]) else {}),
             "kind": "research",
             "text": text,
             "citations": citations,
@@ -478,13 +563,15 @@ class ResearchWorkflow:
     def handoff(self, state: dict, role: str, artifact: dict, **binding) -> list[dict]:
         return [*state["handoffs"], self.handoff_entry(role, artifact, **binding)]
 
-    def handoff_audit(self, entries: list[dict], brief_sha256: str) -> dict:
+    def handoff_audit(self, entries: list[dict], brief_sha256: str, *, approved_plan: dict | None = None) -> dict:
         from citequest.research_v3.handoff_contracts import collect_handoff_audit, source_keys
         task = self.task()
-        receipts = self.host.execution.settled_model_receipts(source_keys(entries))
+        options = {"approved_plan": approved_plan} if approved_plan is not None else {}
+        receipts = self.host.execution.settled_model_receipts(source_keys(entries), **options)
         return collect_handoff_audit(entries, receipts, task_id=str(task["id"]),
             command_id=str(self.host.execution.command["id"]), brief_sha256=brief_sha256,
-            profile_sha256=task["profile_hash"])
+            profile_sha256=task["profile_hash"], **({"prior_command_id": approved_plan["origin_command_id"]}
+                if approved_plan is not None else {}))
 
     def payload(self, state: dict, role: str, model: type[BaseModel] | dict, name: str, policy: str, data: dict,
                 *, logical_key: str | None = None) -> dict:
@@ -626,6 +713,10 @@ class ResearchWorkflow:
             "history": history,
             "hard_memory_refs": memories,
             "outline": {},
+            "execution_plan": {},
+            "execution_plan_decision": {},
+            "execution_plan_history": [],
+            "execution_plan_origin_command_id": "",
             **({"outline_control": {}, "outline_review": {}, "research_capacity": capacity} if self.review_outline else {}),
             "rq_index": 0,
             "experiment_index": 0,
@@ -723,12 +814,15 @@ class ResearchWorkflow:
     def literature_search(self, state: dict) -> dict:
         from .research_capacity import literature_result_limit
         question = self.question(state)
+        approved = self.approved_execution_plan(state)
+        query = (next(node["query"] for node in approved["plan"]["nodes"]
+            if node["id"] == "retrieve:" + question["id"]) if approved else question["retrieval_query"])
         limit = literature_result_limit(self.task())
         response = self.tool(
             state,
             "literature",
             "search_evidence",
-            {"query": question["retrieval_query"], "limit": limit},
+            {"query": query, "limit": limit},
             question["id"] + ":search",
         )
         items = response.get("evidence", [])
@@ -1359,7 +1453,9 @@ class ResearchWorkflow:
             entries = [*state["handoffs"], *(self.handoff_entry("reviewer", item["review"],
                 sources={item["model_source_key"]: "citequest_research_review"},
                 parents={"reviewed_content": item["review"]["content_sha256"]}) for item in state["review_history"])]
-            handoff_audit = {"handoff_audit": self.handoff_audit(entries, state["intake"]["brief_sha256"])}
+            approved = self.approved_execution_plan(state)
+            handoff_audit = {"handoff_audit": self.handoff_audit(entries, state["intake"]["brief_sha256"],
+                approved_plan=approved["plan"] if approved else None)}
         return {
             "next": END,
             "result": {

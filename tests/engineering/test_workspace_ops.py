@@ -68,6 +68,37 @@ class WorkspaceOperationsTests(unittest.TestCase):
             all((self.root / name / "preserve").exists() for name in ("data", ".tmp", "runtime", "reports"))
         )
 
+    def test_noncanonical_root_only_removes_allowlisted_descendants(self) -> None:
+        (self.root / "anchor").mkdir()
+        cache = self.root / ".pytest_cache" / "nested"
+        cache.mkdir(parents=True)
+        (cache / "entry").write_text("cache", encoding="utf-8")
+        data = self.root / "data"
+        data.mkdir()
+        (data / "preserve").write_text("persistent", encoding="utf-8")
+        result = ops.clean_cache(self.root / "anchor" / "..", apply=True)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["removed"], [".pytest_cache"])
+        self.assertFalse(cache.parent.exists())
+        self.assertEqual((data / "preserve").read_text(encoding="utf-8"), "persistent")
+        self.assertTrue((self.root / "anchor").is_dir())
+
+    def test_noncanonical_root_still_rejects_nested_cache_symlinks(self) -> None:
+        (self.root / "anchor").mkdir()
+        cache = self.root / ".pytest_cache"
+        cache.mkdir()
+        data = self.root / "data"
+        data.mkdir()
+        (data / "preserve").write_text("persistent", encoding="utf-8")
+        try:
+            (cache / "redirect").symlink_to(data, target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f"OS does not permit symlink creation: {error.__class__.__name__}")
+        with self.assertRaises(ops.OperationError):
+            ops.clean_cache(self.root / "anchor" / "..", apply=True)
+        self.assertTrue(cache.is_dir())
+        self.assertEqual((data / "preserve").read_text(encoding="utf-8"), "persistent")
+
     @patch.object(ops.shutil, "rmtree", side_effect=PermissionError("denied"))
     def test_cache_permission_failure_is_recorded(self, _remove: object) -> None:
         (self.root / ".pytest_cache").mkdir()

@@ -12,10 +12,10 @@ export function CapabilityStatus({ kind }: { kind: string }) {
     return () => { cancelled = true; };
   }, [kind]);
   const profile = capabilities?.profiles.find(item => item.kind === kind);
-  return <p className="muted task-capabilities" aria-label="新任务执行服务状态">
-    {error ? errorText(error) : !capabilities ? "正在核对执行服务…"
-      : !profile ? "此功能暂未开放新任务；提交前会重新核对执行服务。"
-      : profile.validation_state === "development" ? "当前使用开发验证版本，生成结果会标明证据与缺口。"
-      : "当前功能已开放，提交前会重新核对执行版本。"}
+  return <p className="muted task-capabilities" aria-label="功能是否可用">
+    {error ? errorText(error) : !capabilities ? "正在检查此功能是否可用…"
+      : !profile ? "此功能暂未开放，请稍后再试。"
+      : profile.validation_state === "development" ? "此功能仍在验证中。结果会说明引用依据与尚未解决的问题，请结合原文判断。"
+      : "此功能可以使用，提交时会再检查服务状态。"}
   </p>;
 }

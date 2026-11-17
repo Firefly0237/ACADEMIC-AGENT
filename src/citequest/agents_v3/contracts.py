@@ -313,6 +313,7 @@ class ResearchBrief(Strict):
     research_draft_files: list[ID] = Field(default_factory=list, max_length=4, exclude_if=lambda value: not value)
     research_extract_fields: list[Annotated[str, Field(min_length=1, max_length=40)]] = Field(default_factory=list,
         max_length=16, exclude_if=lambda value: not value)
+    execution_plan_protocol: Literal["approval1"] | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("question", "objective")
     @classmethod
@@ -326,6 +327,9 @@ class ResearchBrief(Strict):
 
     @model_validator(mode="after")
     def direction_matches_kind(self):
+        if self.execution_plan_protocol is not None and (
+                self.kind != "research" or self.research_action not in {"plan", "experiment"}):
+            raise ValueError("execution plan approval requires research planning or experiment design")
         if (self.kind == "research") != (self.research_brief is not None):
             raise ValueError("research tasks require an authorized versioned research Brief reference")
         if (self.research_action in {"review", "revise"}) != (self.review_source is not None):
@@ -385,6 +389,10 @@ class TaskCreate(Strict):
             raise ValueError("research review action requires its dedicated profile")
         if self.brief.research_action == "experiment" and (self.kind != "research" or self.profile_id != "research-v6"):
             raise ValueError("standalone experiment design requires the versioned research-v6 workflow")
+        if self.brief.execution_plan_protocol is not None and (
+                self.kind != "research" or self.profile_id != "research-v6"
+                or self.brief.research_action not in {"plan", "experiment"}):
+            raise ValueError("execution plan approval requires research-v6 planning or experiment design")
         if self.kind != self.brief.kind:
             raise ValueError("Task and Brief kind must match")
         if self.brief.reference_turn_seq is not None:
@@ -397,6 +405,27 @@ class TaskCreate(Strict):
             raise ValueError("selected source locators must be unique")
         if self.kind in {"summary", "compare"} and len(selected) > 10:
             raise ValueError("summary/compare may use at most ten selected documents")
+        return self
+
+
+class PlanDecision(Strict):
+    plan_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    action: Literal["approve", "adjust_queries"]
+    queries: dict[Annotated[str, Field(pattern=r"^RQ[1-9][0-9]*$")], Annotated[str, Field(min_length=1, max_length=2000)]] = Field(
+        default_factory=dict, max_length=8)
+
+    @field_validator("queries")
+    @classmethod
+    def valid_queries(cls, values: dict[str, str]) -> dict[str, str]:
+        from citequest.platform_v3.input_text import request_text
+        for value in values.values():
+            request_text(value)
+        return values
+
+    @model_validator(mode="after")
+    def decision_matches_queries(self) -> PlanDecision:
+        if (self.action == "adjust_queries") != bool(self.queries):
+            raise ValueError("query adjustments require nonempty queries and approval cannot alter queries")
         return self
 
 
@@ -415,6 +444,7 @@ class TaskCommand(Strict):
         max_length=3, exclude_if=lambda value: value is None)
     research_extract_fields: list[Annotated[str, Field(min_length=1, max_length=40)]] | None = Field(default=None,
         max_length=16, exclude_if=lambda value: value is None)
+    plan_decision: PlanDecision | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("message")
     @classmethod
@@ -424,6 +454,10 @@ class TaskCommand(Strict):
 
     @model_validator(mode="after")
     def direction_command(self):
+        if self.plan_decision is not None and (self.kind != "resume" or any(value is not None for value in (
+                self.reference_turn_seq, self.requested_direction, self.research_brief, self.selected_skills,
+                self.research_action, self.research_help_fields, self.research_extract_fields))):
+            raise ValueError("a plan decision requires an isolated resume command")
         if self.kind == "cancel" and self.reference_turn_seq is not None:
             raise ValueError("cancel cannot select a prior answer")
         if self.selected_skills is not None and len({item.skill_id for item in self.selected_skills}) != len(self.selected_skills):

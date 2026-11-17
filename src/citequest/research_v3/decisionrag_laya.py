@@ -9,16 +9,21 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
+import platform
 import sys
 import threading
 import time
 from dataclasses import dataclass
+from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 from citequest.agents_v3.contracts import AgentError
 
 from .decisionrag import DecisionReceipt, DecisionRequest, validate_receipt
+from .navigation_resources import CalibrationSet, NavigationResourceProfile, RequestShape, RuntimeIdentity, evaluate_admission
 
 SDK_VERSION = "0.4.22"
 MODEL_ID = "convaiinnovations/laya"
@@ -55,6 +60,8 @@ class LayaLocalConfig:
     max_questions: int = 8
     cpu_threads: int = 2
     navigation_protocol: str = "laya1"
+    resources: NavigationResourceProfile | None = None
+    calibration: CalibrationSet | None = None
 
 
 class LayaLocalJudge:
@@ -63,16 +70,24 @@ class LayaLocalJudge:
         self._lock = threading.Lock()
         self._forward_count = 0
         self._closed = False
+        self.last_resource_admission = None
+        configured = config.resources
+        if configured is not None and (sys.platform != "linux" or configured.device != "cpu"
+                or configured.execution_mode != "supported" or configured.cpu_threads != config.cpu_threads
+                or configured.max_sequence_tokens > config.max_len):
+            raise AgentError("laya_resource_profile_adapter_mismatch")
+        if config.calibration is not None and configured is None:
+            raise AgentError("laya_calibration_requires_resource_profile")
         if ((config.navigation_protocol, config.max_len) not in {("laya1", 1024), ("laya2", 8192)}
                 or type(config.max_questions) is not int or not 1 <= config.max_questions <= 8
-                or type(config.cpu_threads) is not int or not 1 <= config.cpu_threads <= 2):
+                or type(config.cpu_threads) is not int or not 1 <= config.cpu_threads <= (64 if configured else 2)):
             raise AgentError("laya_unvalidated_resource_profile")
         if os.environ.get("HF_HUB_OFFLINE") != "1" or os.environ.get("TRANSFORMERS_OFFLINE") != "1":
             raise AgentError("laya_explicit_offline_runtime_required")
         cache = config.cache_root.resolve(strict=True)
         for key in ("HF_HOME", "TORCH_HOME", "XDG_CACHE_HOME", "TORCHINDUCTOR_CACHE_DIR"):
-            configured = os.environ.get(key)
-            if not configured or not Path(configured).resolve().is_relative_to(cache):
+            cache_location = os.environ.get(key)
+            if not cache_location or not Path(cache_location).resolve().is_relative_to(cache):
                 raise AgentError("laya_cache_outside_explicit_runtime_root")
         checkpoint = config.checkpoint_directory.resolve(strict=True)
         wheel = config.wheel_file.resolve(strict=True)
@@ -141,6 +156,38 @@ class LayaLocalJudge:
                 raise AgentError("laya_encoder_long_context_binding_required")
             self.model_binding.update(max_len=8192, native_default_max_len=1024,
                 encoder_max_position_embeddings=8192, request_context_protocol="laya2")
+        self.resource_runtime_identity = None
+        self.resource_hardware_identity_basis = None
+        if configured is not None:
+            self.model_binding.update(cpu_threads=config.cpu_threads, resource_profile_id=configured.profile_id,
+                resource_profile_sha256=configured.fingerprint())
+            hardware = {"architecture": platform.machine(), "affinity": sorted(os.sched_getaffinity(0))}
+            if configured.hardware_instance_sha256 is not None:
+                hardware["instance"] = "operator_configured:" + configured.hardware_instance_sha256
+                self.resource_hardware_identity_basis = "operator_configured_hardware_instance_hash"
+            else:
+                for name in ("/sys/devices/virtual/dmi/id/product_uuid", "/etc/machine-id"):
+                    try:
+                        instance = Path(name).read_text().strip()
+                    except OSError:
+                        continue
+                    if instance:
+                        hardware["instance"] = instance
+                        self.resource_hardware_identity_basis = "observed_instance_CPU_model_and_affinity_hash"
+                        break
+            if "instance" not in hardware:
+                # A process-only identity refuses accidental cross-host calibration.
+                hardware["instance"] = os.urandom(32).hex()
+                self.resource_hardware_identity_basis = "process_only_no_cross_process_calibration"
+            cpu = Path("/proc/cpuinfo").read_text()
+            hardware["CPU_model"] = next((line.split(":", 1)[1].strip() for line in cpu.splitlines()
+                if line.startswith("model name")), "unavailable")
+            dtype = ",".join(sorted({str(parameter.dtype) for parameter in self.agent.model.parameters()}))
+            dtype += ";autocast=" + (str(self.agent.dtype) if self.agent.amp_enabled else "disabled")
+            self.resource_runtime_identity = RuntimeIdentity(device="cpu", model_weights_sha256=WEIGHTS_SHA256,
+                model_revision=REVISION, sdk_version=SDK_VERSION, torch_version=str(torch.__version__),
+                backend=self.agent.backend, dtype=dtype, cpu_threads=config.cpu_threads,
+                hardware_sha256=hashlib.sha256(json.dumps(hardware, sort_keys=True).encode()).hexdigest())
         self._forward_handle = self.agent.model.register_forward_pre_hook(self._observed_forward)
 
     def _observed_forward(self, _module: object, _args: tuple) -> None:
@@ -168,13 +215,53 @@ class LayaLocalJudge:
             stats[identifier] = {"sequence_tokens":len(ids), **dropped}
         return stats
 
-    def preflight(self, request: DecisionRequest) -> dict:
-        with self._lock:
-            return self._preflight(request)
+    def _resource_gate(self, checks: dict, remaining_ms: int | None):
+        if self.config.resources is None:
+            return None
+        admission = evaluate_admission(RequestShape.from_preflight(checks), self.config.resources,
+            calibration=self.config.calibration, runtime_identity=self.resource_runtime_identity, remaining_ms=remaining_ms)
+        from .decisionrag_linux import deployment_limits
+        deployment = deployment_limits()
+        admission["deployment_observation"] = deployment
+        if (deployment["external_memory_limit_bytes"] is None
+                or deployment["external_memory_limit_bytes"] < self.config.resources.memory_budget_bytes):
+            admission["reasons"].append("navigation_deployment_memory_capacity")
+        if (deployment["external_CPU_quota"] is not None and deployment["external_CPU_quota"] < self.config.resources.cpu_threads
+                or len(os.sched_getaffinity(0)) < self.config.resources.cpu_threads):
+            admission["reasons"].append("navigation_deployment_CPU_capacity")
+        admission["admitted"] = not admission["reasons"]
+        self.last_resource_admission = admission
+        if not admission["admitted"]:
+            raise AgentError(admission["reasons"][0])
+        return admission
 
-    def score(self, request: DecisionRequest) -> DecisionReceipt:
-        with self._lock:
+    @contextmanager
+    def _request_lock(self):
+        if not self._lock.acquire(blocking=self.config.resources is None):
+            raise AgentError("navigation_concurrency_capacity")
+        try:
+            yield
+        finally:
+            self._lock.release()
+
+    def preflight(self, request: DecisionRequest, *, remaining_ms: int | None = None) -> dict:
+        with self._request_lock():
+            started = time.monotonic()
+            self.last_resource_admission = None
+            checks = self._preflight(request)
+            remaining = max(0, remaining_ms - math.ceil((time.monotonic() - started) * 1000)) if remaining_ms is not None else None
+            self._resource_gate(checks, remaining)
+            return checks
+
+    def score(self, request: DecisionRequest, *, remaining_ms: int | None = None) -> DecisionReceipt:
+        with self._request_lock():
+            if self.config.resources is not None and remaining_ms is None:
+                raise AgentError("navigation_deadline_context_required")
+            preflight_started = time.monotonic()
+            self.last_resource_admission = None
             token_checks = self._preflight(request)
+            remaining = max(0, remaining_ms - math.ceil((time.monotonic() - preflight_started) * 1000)) if remaining_ms is not None else None
+            admission = self._resource_gate(token_checks, remaining)
             state, questions, labels = request.wire_data()
             if self.agent.hooks:
                 raise AgentError("laya_unapproved_prediction_hook")
@@ -196,9 +283,18 @@ class LayaLocalJudge:
                 raise AgentError("laya_unapproved_truncation_fallback_or_forward_count")
             if any(not isinstance(answer,dict) or answer.get("type") != "noul" for answer in answers.values()):
                 raise AgentError("laya_typed_probability_contract_changed")
+            recorded_usage = {**usage, "exact_token_preflight":token_checks, "observed_forward_calls":1,
+                "seconds":seconds, "external_API_cash_ncny":0, "physical_compute_cost_not_measured":True}
+            if admission is not None:
+                import resource
+                recorded_usage.update(resource_admission=admission, resource_observation={
+                    "observed_at": datetime.now(UTC).isoformat(), "runtime": self.resource_runtime_identity.model_dump(mode="json"),
+                    "hardware_identity_basis": self.resource_hardware_identity_basis,
+                    "sequence_tokens": [row["sequence_tokens"] for row in token_checks.values()],
+                    "elapsed_ms": seconds * 1000, "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
+                    "peak_scope": "process_lifetime_RSS", "outcome": "completed", "memory_budget_bytes": self.config.resources.memory_budget_bytes})
             result = DecisionReceipt(request.fingerprint(), {identifier:answers[label]["noul"] for label,identifier in labels.items()},
-                self.model_binding, {**usage, "exact_token_preflight":token_checks, "observed_forward_calls":1,
-                    "seconds":seconds, "external_API_cash_ncny":0, "physical_compute_cost_not_measured":True})
+                self.model_binding, recorded_usage)
             validate_receipt(request, result)
             return result
 

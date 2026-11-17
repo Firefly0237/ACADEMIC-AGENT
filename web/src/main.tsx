@@ -52,6 +52,8 @@ import { newTaskProfile, readTaskCapabilities, type ProfileCapabilities } from "
 import { canRestartResearchReview, reviewOperationId, revisionSelection, sameReviewSource, sourceBriefFields,
   type ReviewSource, type ReviewReportSource, type RevisionRequest } from "./features/research/review";
 import { ResearchVersions } from "./features/research/ResearchVersions";
+import { PlanApprovalPanel } from "./features/research/PlanApprovalPanel";
+import { pendingExecutionPlan, type PlanDecision } from "./features/research/executionPlan";
 import type { AgentResult, CoverageReport, ResearchProgressReport } from "./features/agent/TaskAnswer";
 import { CapabilityStatus } from "./features/agent/CapabilityStatus";
 import { TaskProgress } from "./features/agent/TaskProgress";
@@ -77,9 +79,10 @@ const DraftCandidates = lazy(() => import("./features/research/DraftCandidates")
 let current: Session | null = null;
 function Notice({ error }: { error: unknown }) {
   return (
-    <p className="notice" role="alert">
-      {errorText(error)}
-    </p>
+    <div className="notice" role="alert">
+      <p>{errorText(error)}</p>
+      {error instanceof APIError && <details><summary>反馈问题时可附上这个编号</summary><code>{error.code}</code></details>}
+    </div>
   );
 }
 function App() {
@@ -127,7 +130,7 @@ function App() {
             <a href="/auth/login">登录个人中心 →</a>
           )}
           <ThemeSwitcher />
-          <small>计算机科学 · 有界公开语料</small>
+          <small>目前资料库以计算机科学为主</small>
         </div>
       </aside>
       <main>
@@ -755,6 +758,7 @@ type Task = {
     research_action?: ResearchStartAction | "suggest" | "extract" | "review" | "revise";
     review_source?: ReviewSource;
     revision_request?: RevisionRequest;
+    execution_plan_protocol?: "approval1";
   };
   known_ncny?: number;
   reserved_ncny?: number;
@@ -815,6 +819,7 @@ function TaskComposer({
   const [kind, setKind] = useState(initialKind);
   const [task, setTask] = useState<Task | null>(null);
   const fixedReview = embeddedReview || ["review", "revise"].includes(task?.brief?.research_action || "");
+  const planApproval = task?.state === "waiting_input" ? pendingExecutionPlan(task.result) : undefined;
   useEffect(() => { onTaskSnapshot?.(task); }, [task, onTaskSnapshot]);
   const [referenceTurn, setReferenceTurn] = useState<{ taskId: string; commandSeq: number } | null>(null);
   const [events, setEvents] = useState<any[]>([]);
@@ -905,7 +910,7 @@ function TaskComposer({
         if (cancelled || eventTaskId.current !== task.id) return;
         const recoveredFailure = pollingFailure;
         if (recoveredFailure !== undefined)
-          setError(current => current === recoveredFailure ? undefined : current);
+          setError((current: unknown) => current === recoveredFailure ? undefined : current);
         pollingFailure = undefined;
         failures = 0;
         setTask(next);
@@ -954,7 +959,7 @@ function TaskComposer({
     return () => stream.close();
   }, [task?.id, task?.state]);
   const submit = async () => {
-    if (fixedReview) return;
+    if (fixedReview || planApproval) return;
     setError(undefined);
     setSending(true);
     try {
@@ -1048,18 +1053,49 @@ function TaskComposer({
       setSending(false);
     }
   };
+  const refreshPlan = async () => {
+    if (!task || sending) return;
+    setSending(true);
+    setError(undefined);
+    try {
+      const value = await api<Task>(`/api/agent/tasks/${encodeURIComponent(task.id)}`);
+      if (eventTaskId.current === task.id) setTask(value);
+    } catch (failure) { reportTaskError(failure, task.id); }
+    finally { setSending(false); }
+  };
+  const decidePlan = async (decision: PlanDecision) => {
+    if (!task || !planApproval || sending || !canContinueTask(task)) return;
+    setSending(true);
+    setError(undefined);
+    try {
+      const command = {
+        expected_revision: task.revision,
+        kind: "resume",
+        message: decision.action === "approve" ? "批准当前版本执行计划。" : "调整检索词后重新确认执行计划。",
+        plan_decision: decision,
+      };
+      const signature = JSON.stringify({ task_id: task.id, ...command });
+      if (pendingOperation.current?.signature !== signature)
+        pendingOperation.current = { signature, id: crypto.randomUUID() };
+      const value = await api<Task>(`/api/agent/tasks/${encodeURIComponent(task.id)}/commands`, {
+        ...command, operation_id: pendingOperation.current.id,
+      });
+      if (eventTaskId.current === task.id) setTask(value);
+    } catch (failure) { reportTaskError(failure, task.id); }
+    finally { setSending(false); }
+  };
   return (
     <div className="task">
       {!current?.authenticated ? (
         <p className="muted">
-          <a href="/auth/login">登录</a>后发起 AI 任务，普通文献搜索无需登录。
+          <a href="/auth/login">登录</a>后使用资料问答与研究辅助，普通文献搜索无需登录。
         </p>
       ) : (
         <>
           <details
             onToggle={(event) => setContextOpen(event.currentTarget.open)}
           >
-            <summary>技能与项目记忆</summary>
+            <summary>研究偏好与辅助设置（可选）</summary>
             {contextOpen && (
               <Suspense fallback={<p>正在读取上下文设置…</p>}>
                 <ContextSettings
@@ -1067,7 +1103,7 @@ function TaskComposer({
                   selected={selectedSkills}
                   onSelect={setSelectedSkills}
                   selectionDisabled={
-                    fixedReview || sending ||
+                    fixedReview || !!planApproval || sending ||
                     (!!task &&
                       ["queued", "running", "reconciling"].includes(task.state))
                   }
@@ -1077,7 +1113,9 @@ function TaskComposer({
           </details>
           {task?.kind === "research" && (
             <p className="muted">
-              {fixedReview ? "本次稿件任务绑定所选稿件与研究档案版本，原稿与已有评审报告保留。" : "继续任务会重新读取并同步当前已保存的研究档案；模型调用与费用沿用本任务累计记录。"}
+              {fixedReview ? "本次稿件任务绑定所选稿件与研究档案版本，原稿与已有评审报告保留。"
+                : planApproval ? "执行计划正在等待你确认。请在下方核对、调整或批准指定版本，模型调用与费用沿用本任务累计记录。"
+                : "继续任务会重新读取并同步当前已保存的研究档案；模型调用与费用沿用本任务累计记录。"}
             </p>
           )}
           {!task && !fixedReview && <CapabilityStatus kind={kind} />}
@@ -1090,8 +1128,8 @@ function TaskComposer({
           </label>
           <textarea
             id={questionId}
-            disabled={fixedReview}
-            hidden={fixedReview}
+            disabled={fixedReview || !!planApproval}
+            hidden={fixedReview || !!planApproval}
             maxLength={8000}
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
@@ -1132,9 +1170,9 @@ function TaskComposer({
             )}
             <button
               className="primary"
-              hidden={fixedReview}
+              hidden={fixedReview || !!planApproval}
               disabled={
-                fixedReview || sending || (!!resumeTaskId && !task) ||
+                fixedReview || !!planApproval || sending || (!!resumeTaskId && !task) ||
                 !question.trim() ||
                 (!!task && !canContinueTask(task)) ||
                 (!task &&
@@ -1194,7 +1232,7 @@ function TaskComposer({
         <section className="task-output">
           <div className="task-state" aria-live="polite">
             <span className={task.state === "running" ? "pulse" : ""}>●</span>{" "}
-            {taskStateText(task.state)} · 任务 {task.id.slice(0, 8)}
+            {taskStateText(task.state)}
           </div>
           <TaskConversation taskId={task.id} revision={task.revision} state={task.state}
             selectedReferenceSeq={selectedReferenceSeq} referenceDisabled={sending || !canContinueTask(task)}
@@ -1203,17 +1241,19 @@ function TaskComposer({
               document.getElementById(questionId)?.focus();
             } : undefined}
             onUnavailable={failure => reportTaskError(failure, task.id)} />
-          <h3>当前轮次</h3>
+          <h3>这次要解决的问题</h3>
           {task.brief?.question && <p className="conversation-question">{task.brief.question}</p>}
           {task.brief?.reference_turn_seq !== undefined && <p className="muted">
             本轮指代提交序号 {task.brief.reference_turn_seq} 的回答。
           </p>}
           {task.state === "partial" && <p className="notice" role="status">{fixedReview
-            ? "本轮稿件任务尚未完成。原稿和已有评审报告保留，执行情况见下方诊断。"
+            ? "这次稿件处理尚未完成。原稿和已有评阅意见保留，请查看下方的未完成说明。"
             : "本轮仅完成部分内容。已确认的回答与尚未覆盖的问题会分别列出，可在本任务内继续补充。"}</p>}
           {task.state === "reconciling" && <p className="notice" role="status">存在尚未确认结果的调用，正在核对；费用预留与执行记录保留，当前不能继续追问。</p>}
           <TaskProgress events={events} task={task} hasMore={eventHasMore}
             onMore={() => void loadEventPage(task.id, historyCursor.current).catch(failure => reportTaskError(failure, task.id))} />
+          {planApproval && <PlanApprovalPanel key={`${task.id}:${planApproval.plan_sha256}`} request={planApproval}
+            sourceCount={selectedCount} busy={sending} disabled={!canContinueTask(task)} onDecision={decidePlan} onRefresh={refreshPlan} />}
           {task.runtime_availability === "pinned_legacy_runtime_required" && (
             <p className="notice">
               该历史任务绑定旧版执行环境，当前运行器不会自动接管。原费用与执行记录仍保留。
@@ -1254,7 +1294,7 @@ function TaskComposer({
               </>} />}
           {task.kind === "stance" && !task.result && task.coverage_report && <TaskCoverage report={task.coverage_report} />}
           {task.kind === "research" && !task.result?.school_document && task.research_progress && <ResearchProgress report={task.research_progress} />}
-          <details><summary>用量与预算详情</summary><div className="usage">
+          <details><summary>费用、用量与运行记录</summary><p>任务记录编号：<code>{task.id}</code></p><div className="usage">
             模型 {task.model_calls ?? "—"}{task.profile?.model_calls ? ` / ${task.profile.model_calls}` : ""} 次 · 工具 {task.tool_calls ?? "—"}{task.profile?.tool_calls ? ` / ${task.profile.tool_calls}` : ""} 次
             · 已知输入 {task.input_tokens ?? "—"} / 输出{" "}
             {task.output_tokens ?? "—"} tokens · 活跃{" "}
@@ -1347,11 +1387,11 @@ function OptionalResearchReview({ sourceTask, sourceBinding, sourceBrief, onBrie
     }
   }
   const canRestart = child !== null && canRestartResearchReview(child);
-  return <section className="card" aria-label="可选的多智能体稿件评审">
-    <h3>多 Agent 评审（可选）</h3>
+  return <section className="card" aria-label="多角度评阅稿件">
+    <h3>从不同角度检查稿件（可选）</h3>
     <p className="muted">原稿可直接查看和导出。也可以对当前版本分别进行文献依据、实验方法、可行性与结构评审，查看分歧和待补信息。</p>
     {!childId && <button type="button" disabled={!profile || busy} onClick={() => void start()}>
-      {busy ? "正在提交评审…" : "多 Agent 评审"}
+      {busy ? "正在提交…" : "查看多角度评阅意见"}
     </button>}
     {profile === null && <p className="muted">当前评审服务尚未开放。</p>}
     {!!error && <><Notice error={error} />
@@ -1584,16 +1624,20 @@ function MaterialDetail() {
       ) : (
         <>
           <p className="byline">
-            {file.media_type} · {file.status} · {id.slice(0, 8)}
+            {({ queued: "等待处理", validating: "正在检查文件", parsing: "正在读取内容", partial: "已读取部分内容", ready: "内容已准备好", failed: "暂时无法读取", cancelled: "已停止处理" } as Record<string, string>)[file.status] || "处理状态待确认"}
+            {file.page_count ? ` · 共 ${file.page_count} 页` : ""}
           </p>
           {file.coverage && (
-            <pre className="muted">
-              实际解析覆盖：{JSON.stringify(file.coverage)}
-            </pre>
+            <p className={file.coverage === "text_full" ? "muted" : "notice"}>
+              可用于分析的内容：{({ text_full: "已读取文本内容；图片、公式和表格仍请结合原件核对", abstract_only: "目前仅有摘要", image_only: "目前只有图片，尚无可分析的文本", partial: "仅部分内容，不能当作已完整阅读" } as Record<string, string>)[file.coverage] || "已处理范围仍需核对"}。
+            </p>
           )}
           <p className="muted">
-            材料保持私有；原文阅读范围与 AI 已解析证据范围分别显示。
+            材料保持私有。能打开原件不代表系统已读取其中的全部内容，请结合下方可用范围判断。
           </p>
+          <details><summary>文件与处理记录</summary><p>文件编号：<code>{id}</code></p><p>类型：{file.media_type} · 状态记录：{file.status}</p>
+            {file.coverage && <pre>{JSON.stringify(file.coverage, null, 2)}</pre>}
+          </details>
           {file.can_download && (
             <a
               className="button"
@@ -1742,6 +1786,7 @@ function Workspace() {
   const [researchTaskId, setResearchTaskId] = useState<string>();
   const [error, setError] = useState<unknown>();
   const [researchSkills, setResearchSkills] = useState<SkillPin[]>([]);
+  const [requirePlanApproval, setRequirePlanApproval] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [briefRefresh, setBriefRefresh] = useState<{ id: string; revision: number }>();
   const briefSaved = (value: BriefSnapshot) => setBriefRefresh({ id: value.brief.id, revision: value.brief.revision });
@@ -1796,6 +1841,10 @@ function Workspace() {
         setResearchTaskId(existing);
         return previous;
       }
+      if (previous.state === "waiting_input" && pendingExecutionPlan(previous.result)) {
+        setResearchTaskId(existing);
+        return previous;
+      }
       if (!["succeeded", "partial", "waiting_input"].includes(previous.state))
         throw new Error(
           "该研究任务已终止。原失败记录会保留，请明确另起研究任务。",
@@ -1817,9 +1866,10 @@ function Workspace() {
         operation_id: operation({ task_id: existing, ...body }),
       });
     } else {
+      const profile = await newTaskProfile("research");
       const body = {
         project_id: current.project_id,
-        profile_id: await newTaskProfile("research"),
+        profile_id: profile,
         kind: "research",
         brief: {
           kind: "research",
@@ -1830,6 +1880,8 @@ function Workspace() {
           research_brief: reference,
           research_action: action,
           selected_skills: researchSkills,
+          ...(requirePlanApproval && profile === "research-v6" && ["plan", "experiment"].includes(action)
+            ? { execution_plan_protocol: "approval1" } : {}),
           ...(action === "suggest" ? { research_help_fields: fields }
             : action === "extract" ? { research_extract_fields: fields } : {}),
         },
@@ -1921,6 +1973,12 @@ function Workspace() {
           </Suspense>
         )}
       </details>
+      <label className="cq-execution-setting">
+        <input type="checkbox" checked={requirePlanApproval} onChange={event => setRequirePlanApproval(event.target.checked)} />
+        <span>开始查找资料前，先让我确认内容
+          <small>适用于支持确认功能的研究方案与实验设计。已有任务保留原来的设置。</small>
+        </span>
+      </label>
       <Suspense fallback={<p role="status">正在载入科研工作区…</p>}>
         <WorkspacePanel
           identity={current}
@@ -2144,7 +2202,7 @@ function Upload() {
         {result && (
           <>
             <p className="success">服务端已接收，解析状态请到工作区查看。</p>
-            <pre className="receipt">{JSON.stringify(result, null, 2)}</pre>
+            <details><summary>查看保存记录</summary><pre className="receipt">{JSON.stringify(result, null, 2)}</pre></details>
             <Link to="/workspace">进入工作区 →</Link>
           </>
         )}

@@ -111,9 +111,23 @@ class ResearchTaskGraph:
     def run(self) -> dict:
         previous = self.workflow.get_state(self.config)
         command = self.host.execution.command
-        value = (Command(resume={"versioned_brief_must_be_reloaded": True})
-            if previous.next and command["kind"] == "resume" else None
-            if previous.next else {"command_id": str(command["id"])})
+        finished = previous.values if isinstance(previous.values, dict) else {}
+        approval = finished.get("execution_plan_decision", {})
+        admitted = command.get("payload", {}).get("plan_decision", {})
+        completed_approval = (not previous.next and bool(finished.get("result"))
+            and command["kind"] == "resume" and approval.get("action") == "approve"
+            and approval.get("command_id") == str(command["id"])
+            and admitted.get("action") == "approve"
+            and approval.get("plan_sha256") == admitted.get("plan_sha256")
+            and self.host.execution.snapshot()["brief"].get("execution_plan_protocol") == "approval1")
+        # The graph can commit before the business outcome is recorded. Reuse
+        # this command's completed checkpoint instead of starting a fresh plan.
+        if completed_approval:
+            value = None
+        elif previous.next:
+            value = Command(resume={"versioned_brief_must_be_reloaded": True}) if command["kind"] == "resume" else None
+        else:
+            value = {"command_id": str(command["id"])}
         result = self.workflow.invoke(value, self.config, durability="sync")
         snapshot = self.workflow.get_state(self.config, subgraphs=True)
         checkpoint_id = snapshot.config.get("configurable", {}).get("checkpoint_id")

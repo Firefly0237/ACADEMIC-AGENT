@@ -11,6 +11,12 @@ type Version = {
 type Page = { items: Version[]; next_after_command_seq: number | null };
 export type ResearchVersion = { source_binding: ReviewSource; result: AgentResult; source_brief: object };
 
+function savedTime(value?: string) {
+  const time = value ? new Date(value) : null;
+  return time && Number.isFinite(time.getTime())
+    ? time.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }) : "保存时间未记录";
+}
+
 export function ResearchVersions({ taskId, initialCommandSeq, renderVersion }: {
   taskId: string; initialCommandSeq?: number; renderVersion: (version: ResearchVersion) => ReactNode;
 }) {
@@ -69,12 +75,12 @@ export function ResearchVersions({ taskId, initialCommandSeq, renderVersion }: {
         onChange={event => { if (event.target.value) void choose(Number(event.target.value)); }}>
         {selected === undefined && <option value="">选择已保存稿件</option>}
         {initialCommandSeq !== undefined && !items.some(item => item.command_seq === initialCommandSeq)
-          && <option value={initialCommandSeq}>当前稿 · 提交 {initialCommandSeq}</option>}
+          && <option value={initialCommandSeq}>当前稿</option>}
         {selected !== undefined && selected !== initialCommandSeq && !items.some(item => item.command_seq === selected)
-          && <option value={selected}>已选历史稿 · 提交 {selected}</option>}
+          && <option value={selected}>已选历史稿</option>}
         {items.map(item => <option key={item.command_seq} value={item.command_seq}
           disabled={item.availability !== "available"}>
-          {item.command_seq === initialCommandSeq ? "当前稿" : "历史稿"} · 提交 {item.command_seq} · {item.title || "研究计划书"}{item.availability !== "available" ? " · 当前不可用" : ""}
+          {item.command_seq === initialCommandSeq ? "当前稿" : "历史稿"} · {item.title || "研究计划书"} · {savedTime(item.created_at)}{item.availability !== "available" ? " · 当前不可用" : ""}
         </option>)}
       </select></label>
       <button type="button" disabled={loadingList || busy} onClick={() => { void load(); if (selected !== undefined) void choose(selected); }}>刷新版本列表</button>
@@ -86,6 +92,10 @@ export function ResearchVersions({ taskId, initialCommandSeq, renderVersion }: {
       {selected !== undefined && <button type="button" disabled={busy} onClick={() => void choose(selected)}>重新读取所选版本</button>}
     </p>}
     {!loadingList && !items.length && initialCommandSeq === undefined && <p className="muted">本任务尚无可读取的已完成稿件。</p>}
-    {version && <><p className="muted">正在查看提交 {version.source_binding.command_seq} 的稿件；下方评审与导出使用此版本。</p>{renderVersion(version)}</>}
+    {version && <><p className="muted">正在查看{version.source_binding.command_seq === initialCommandSeq ? "当前稿" : "所选历史稿"}；下方评阅与导出使用这份稿件。</p>
+      <details><summary>查看稿件记录</summary>
+        <p>保存时间：{savedTime(items.find(item => item.command_seq === version.source_binding.command_seq)?.created_at)}。</p>
+        <p>提交记录编号：{version.source_binding.command_seq}。</p>
+      </details>{renderVersion(version)}</>}
   </section>;
 }

@@ -513,6 +513,7 @@ class ResearchWorkflowControls(unittest.IsolatedAsyncioTestCase):
             {
                 "intake": host.intake,
                 "hard_memory_refs": [memory],
+                "outline": {"questions": [{"id": "RQ1", "experiment_ids": ["E1"]}]},
                 "evidence": [host.tools.item],
                 "literature": [
                     {

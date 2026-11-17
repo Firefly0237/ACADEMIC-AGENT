@@ -133,7 +133,7 @@ def fixture(*, failure: str = "", repeat: bool = False) -> tuple[ResearchWorkflo
     boundary = ResearchWorkflow(host, lambda: copy.deepcopy(ledger.intake), writing_reserve_model_calls=0)
     intake = boundary.current_input().model_dump(mode="json")
     anchor = {"intake": intake, "hard_memory_refs": [], "current_evidence": [source()], "evidence": [source()], "literature": [], "handoffs": [],
-        "rq_index": 0, "outline": {"questions": [{"id": "RQ1", "question": "该假设是否已验证，来源中的字符是什么？"}]}}
+        "rq_index": 0, "outline": {"questions": [{"id": "RQ1", "question": "该假设是否已验证，来源中的字符是什么？", "experiment_ids": ["E1"]}]}}
     return boundary, anchor, provider
 
 

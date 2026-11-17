@@ -30,6 +30,7 @@ def fixture():
         "context_manifest": {"brief_id": str(brief_id), "brief_revision": 2, "brief_sha256": "a"*64,
             "memory_refs": [], "evidence_refs": [{"ref_id": "EXPLICIT_REF"}]}, "citations": []}
     task = {"id": task_id, "project_id": project, "kind": "research", "revision": 2, "state": "partial",
+        "profile": PROFILES["research-v6"].model_dump(mode="json"), "command_seq": 1,
         "brief": {"research_brief": {"id": str(brief_id)}}, "result": None, "result_availability": "quality_rejected"}
     source = {**copy.deepcopy(task), "owner_id": owner, "result": raw}
     @contextmanager

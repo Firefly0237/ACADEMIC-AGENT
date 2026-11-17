@@ -19,6 +19,7 @@ WaitKind = Literal[
     "research_scope_exceeds_remaining_budget", "revision_needs_user_input",
     "research_conflict_resolution_set_exceeds_bound", "research_draft_input_required",
     "school_writing_incomplete", "other_required_input",
+    "execution_plan_approval_required",
 ]
 WAIT_KINDS = frozenset(get_args(WaitKind))
 

@@ -1,0 +1,22 @@
+{
+  "version": "citequest-navigation-resources/1",
+  "profile_id": "cuda-bf16-24gb-class-20g-budget-unmeasured-target-v1",
+  "device": "cuda",
+  "execution_mode": "planning_only",
+  "cpu_threads": 4,
+  "memory_budget_bytes": 21474836480,
+  "address_space_limit_bytes": 34359738368,
+  "max_concurrency": 1,
+  "max_question_rows": 8,
+  "max_sequence_tokens": 8192,
+  "max_padded_tokens": 65536,
+  "startup_timeout_seconds": 90,
+  "minimum_remaining_ms": 250,
+  "uncalibrated_latency_policy": "reject",
+  "runtime_overhead_bytes": 1073741824,
+  "linear_workspace_bytes_per_token": 16384,
+  "attention_workspace_bytes_per_cell": 0,
+  "memory_headroom_ratio": 1.25,
+  "latency_headroom_ratio": 1.5,
+  "attention_assumption": "unverified_fused_linear_target"
+}

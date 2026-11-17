@@ -23,6 +23,7 @@ from citequest.agents_v3.contracts import AgentError, digest
 
 class Execution:
     def __init__(self, *, actual_rpc=False):
+        self.task_id = uuid4()
         self.events = []
         self.actual_rpc = actual_rpc
         self.settlements = []
@@ -114,7 +115,15 @@ class Transport:
         return Session()
 
 
-class LifetimeControls(unittest.IsolatedAsyncioTestCase):
+class ConfiguredControl(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="cq-mcp-config-")
+        self.addCleanup(directory.cleanup)
+        self.config_file = Path(directory.name) / "fixture.json"
+        self.config_file.write_text("{}", encoding="utf-8")
+
+
+class LifetimeControls(ConfiguredControl):
     def patches(self, transport):
         return patch.object(module, "stdio_client", transport.stdio), patch.object(
             module, "ClientSession", transport.factory
@@ -123,7 +132,7 @@ class LifetimeControls(unittest.IsolatedAsyncioTestCase):
     async def test_lazy_missing_input_opens_no_context_or_scope(self):
         transport = Transport()
         with self.patches(transport)[0], self.patches(transport)[1]:
-            async with module.MCPTools(Execution(), Path("EXPLICIT_NO_CONFIG"), lazy=True) as tools:
+            async with module.MCPTools(Execution(), self.config_file, lazy=True) as tools:
                 self.assertIsNone(tools._owner)
                 self.assertIsNone(tools.session)
             self.assertEqual((transport.enters, transport.scope_calls), ([], 0))
@@ -134,7 +143,7 @@ class LifetimeControls(unittest.IsolatedAsyncioTestCase):
     async def test_single_owner_enter_exit_from_distinct_lazy_consumers(self):
         transport = Transport()
         with self.patches(transport)[0], self.patches(transport)[1]:
-            async with module.MCPTools(Execution(), Path("EXPLICIT_NO_CONFIG"), lazy=True) as tools:
+            async with module.MCPTools(Execution(), self.config_file, lazy=True) as tools:
                 await asyncio.create_task(tools.check_scope())
                 await asyncio.create_task(tools.call("search_evidence", {"query": "fixture"}, logical_key="fixture"))
                 self.assertIsNot(tools._owner, asyncio.current_task())
@@ -146,7 +155,7 @@ class LifetimeControls(unittest.IsolatedAsyncioTestCase):
     async def test_session_assigned_but_not_ready_public_methods_wait(self):
         transport = Transport(block_init=True)
         with self.patches(transport)[0], self.patches(transport)[1]:
-            async with module.MCPTools(Execution(), Path("EXPLICIT_NO_CONFIG"), lazy=True) as tools:
+            async with module.MCPTools(Execution(), self.config_file, lazy=True) as tools:
                 opener = asyncio.create_task(tools.open())
                 await transport.assigned.wait()
                 scope = asyncio.create_task(tools.check_scope())
@@ -162,7 +171,7 @@ class LifetimeControls(unittest.IsolatedAsyncioTestCase):
     async def test_concurrent_twenty_opens_have_one_lifetime_owner(self):
         transport = Transport(block_init=True)
         with self.patches(transport)[0], self.patches(transport)[1]:
-            async with module.MCPTools(Execution(), Path("EXPLICIT_NO_CONFIG"), lazy=True) as tools:
+            async with module.MCPTools(Execution(), self.config_file, lazy=True) as tools:
                 consumers = [asyncio.create_task(tools.open()) for _ in range(20)]
                 await transport.assigned.wait()
                 self.assertEqual(len(transport.enters), 1)
@@ -173,7 +182,7 @@ class LifetimeControls(unittest.IsolatedAsyncioTestCase):
     async def test_cancelled_consumer_does_not_cancel_shared_initialization(self):
         transport = Transport(block_init=True)
         with self.patches(transport)[0], self.patches(transport)[1]:
-            async with module.MCPTools(Execution(), Path("EXPLICIT_NO_CONFIG"), lazy=True) as tools:
+            async with module.MCPTools(Execution(), self.config_file, lazy=True) as tools:
                 consumer = asyncio.create_task(tools.open())
                 await transport.assigned.wait()
                 consumer.cancel()
@@ -187,7 +196,7 @@ class LifetimeControls(unittest.IsolatedAsyncioTestCase):
     async def test_close_with_session_still_present_rejects_new_consumers(self):
         transport = Transport(block_exit=True)
         with self.patches(transport)[0], self.patches(transport)[1]:
-            tools = module.MCPTools(Execution(), Path("EXPLICIT_NO_CONFIG"), lazy=True)
+            tools = module.MCPTools(Execution(), self.config_file, lazy=True)
             await tools.__aenter__()
             await tools.open()
             closer = asyncio.create_task(tools.__aexit__(None, None, None))
@@ -206,7 +215,7 @@ class LifetimeControls(unittest.IsolatedAsyncioTestCase):
     async def test_cancellation_during_cleanup_waits_then_propagates(self):
         transport = Transport(block_exit=True)
         with self.patches(transport)[0], self.patches(transport)[1]:
-            tools = module.MCPTools(Execution(), Path("EXPLICIT_NO_CONFIG"), lazy=True)
+            tools = module.MCPTools(Execution(), self.config_file, lazy=True)
             await tools.open()
             closer = asyncio.create_task(tools.__aexit__(None, None, None))
             await transport.exit_entered.wait()
@@ -225,7 +234,7 @@ class LifetimeControls(unittest.IsolatedAsyncioTestCase):
         transport = Transport()
         with self.patches(transport)[0], self.patches(transport)[1]:
             with self.assertRaisesRegex(RuntimeError, "explicit_body_failure"):
-                async with module.MCPTools(Execution(), Path("EXPLICIT_NO_CONFIG"), lazy=True) as tools:
+                async with module.MCPTools(Execution(), self.config_file, lazy=True) as tools:
                     await tools.open()
                     raise RuntimeError("explicit_body_failure")
             self.assertEqual(transport.enters, transport.exits)
@@ -233,7 +242,7 @@ class LifetimeControls(unittest.IsolatedAsyncioTestCase):
     async def test_initialization_failure_closes_and_does_not_retry(self):
         transport = Transport(fail_init=True)
         with self.patches(transport)[0], self.patches(transport)[1]:
-            tools = module.MCPTools(Execution(), Path("EXPLICIT_NO_CONFIG"), lazy=True)
+            tools = module.MCPTools(Execution(), self.config_file, lazy=True)
             for request in (tools.open(), tools.open(), tools.__aexit__(None, None, None)):
                 with self.assertRaises(BaseExceptionGroup) as caught:
                     await request
@@ -250,7 +259,7 @@ class LifetimeControls(unittest.IsolatedAsyncioTestCase):
     async def test_cancelled_cleanup_keeps_cancel_primary_when_owner_then_fails(self):
         transport = Transport(block_init=True, fail_init=True)
         with self.patches(transport)[0], self.patches(transport)[1]:
-            tools = module.MCPTools(Execution(), Path("EXPLICIT_NO_CONFIG"), lazy=True)
+            tools = module.MCPTools(Execution(), self.config_file, lazy=True)
             waiter = asyncio.create_task(tools.open())
             await transport.assigned.wait()
             waiter.cancel()
@@ -286,10 +295,11 @@ FIXTURE_SERVER = None
 REAL_CHILD_PIDS = set()
 
 
-class RealStdioControls(unittest.IsolatedAsyncioTestCase):
+class RealStdioControls(ConfiguredControl):
     def setUp(self):
         if FIXTURE_SERVER is None:
             self.skipTest("explicit fixture server reference is required")
+        super().setUp()
 
     def parameters(self, pidfile, *, bad_catalog=False):
         original = module.StdioServerParameters
@@ -315,7 +325,7 @@ class RealStdioControls(unittest.IsolatedAsyncioTestCase):
             pidfile = Path(directory) / "fixture-child.pid"
             with self.parameters(pidfile):
                 execution = Execution(actual_rpc=True)
-                async with module.MCPTools(execution, Path("EXPLICIT_UNUSED_CONFIG"), lazy=True) as tools:
+                async with module.MCPTools(execution, self.config_file, lazy=True) as tools:
                     self.assertFalse(pidfile.exists())
                     await asyncio.create_task(tools.check_scope())
                     result = await asyncio.create_task(
@@ -334,7 +344,7 @@ class RealStdioControls(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory(prefix="cq-mcp-lifetime-") as directory:
             pidfile = Path(directory) / "fixture-child.pid"
             with self.parameters(pidfile, bad_catalog=True):
-                tools = module.MCPTools(Execution(), Path("EXPLICIT_UNUSED_CONFIG"), lazy=True)
+                tools = module.MCPTools(Execution(), self.config_file, lazy=True)
                 for request in (tools.open(), tools.open(), tools.__aexit__(None, None, None)):
                     with self.assertRaises(BaseExceptionGroup) as caught:
                         await request

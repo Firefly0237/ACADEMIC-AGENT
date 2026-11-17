@@ -66,6 +66,21 @@ class CurrentReleaseOperationsTests(unittest.TestCase):
 
     @patch.object(ops, "docker_prefix", return_value=["docker"])
     @patch.object(ops.subprocess, "run")
+    def test_noncanonical_root_keeps_the_exact_release_binding(self, run: object, _prefix: object) -> None:
+        root = self.root / "candidate" / ".."
+        self.responses(run)
+        self.assertEqual(ops.check_ownership(self.data, "web", root), [CID])
+        self.assertEqual(run.call_count, 2)
+
+    @patch.object(ops.subprocess, "run")
+    def test_noncanonical_root_rejects_changed_files_before_Docker(self, run: object) -> None:
+        self.override.write_text("services: {}", encoding="utf-8")
+        with self.assertRaisesRegex(ops.OperationError, "candidate/compose.override.yml"):
+            ops.check_ownership(self.data, "web", self.root / "candidate" / "..")
+        run.assert_not_called()
+
+    @patch.object(ops, "docker_prefix", return_value=["docker"])
+    @patch.object(ops.subprocess, "run")
     def test_missing_override_is_refused(self, run: object, _prefix: object) -> None:
         self.responses(run, paths=[self.base])
         with self.assertRaises(ops.OperationError):

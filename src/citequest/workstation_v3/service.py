@@ -17,6 +17,7 @@ from citequest.v2.pagination import Pager
 from citequest.v2.services import Catalog
 
 from .contracts import Activity, BatchSave, ClearHistory
+from .task_listing import TaskStateGroup, task_category, task_states
 
 
 class WorkstationService:
@@ -227,9 +228,11 @@ class WorkstationService:
             request.operation_id, {"operation": "clear_workstation_history", **request.model_dump(mode="json")}, effect
         )
 
-    def tasks(self, *, project_id: UUID | None = None, limit: int = 20, cursor: str | None = None) -> dict:
+    def tasks(self, *, project_id: UUID | None = None, limit: int = 20, cursor: str | None = None,
+              state_group: TaskStateGroup = "all") -> dict:
         if not 1 <= limit <= 50:
             raise DomainError("invalid_page", 400)
+        states = task_states(state_group)
         if project_id is not None:
             self.catalog.project(project_id)
         identity = {
@@ -238,12 +241,22 @@ class WorkstationService:
             "project_id": str(project_id) if project_id else None,
             "limit": limit,
         }
+        # Keep old all-task cursors valid; every filtered cursor is bound to its group.
+        if state_group != "all":
+            identity["state_group"] = state_group
         last = self.pager.decode(cursor, identity) if cursor else None
         conditions = ["t.owner_id=:owner"]
         values = {"owner": self.actor.owner_id, "limit": limit + 1}
         if project_id:
             conditions.append("t.project_id=:project")
             values["project"] = project_id
+        if states:
+            placeholders = []
+            for index, state in enumerate(states):
+                key = f"task_state_{index}"
+                placeholders.append(":" + key)
+                values[key] = state
+            conditions.append("t.state IN (" + ",".join(placeholders) + ")")
         if last:
             conditions.append("(t.created_at,t.id)<(:created,:id)")
             values.update(created=datetime.fromisoformat(last["created"]), id=UUID(last["id"]))
@@ -252,7 +265,8 @@ class WorkstationService:
         rows = list(
             self.db.execute(
                 text(
-                    """SELECT t.id,t.project_id,t.kind,t.state,t.revision,t.created_at
+                    """SELECT t.id,t.project_id,t.kind,t.state,t.revision,t.created_at,t.updated_at,
+             t.profile->>'profile_id' AS task_profile_id,t.brief->>'research_action' AS research_action
             FROM cq_app.agent_tasks t JOIN cq_app.projects p
               ON (p.id,p.owner_id)=(t.project_id,t.owner_id) WHERE """
                     + " AND ".join(conditions)
@@ -278,9 +292,11 @@ class WorkstationService:
                     "task_id": str(row["id"]),
                     "project_id": str(row["project_id"]),
                     "kind": row["kind"],
+                    "category": task_category(row["kind"], row["task_profile_id"], row["research_action"]),
                     "state": row["state"],
                     "revision": row["revision"],
                     "created_at": row["created_at"].isoformat(),
+                    "updated_at": row["updated_at"].isoformat(),
                     "detail_path": f"/api/agent/tasks/{row['id']}",
                     "artifact_content": "requires_current_result_authorization",
                 }

@@ -88,14 +88,58 @@ class DecisionRAGTaskConfigV2(DecisionRAGTaskConfig):
             max_forward_calls=self.maximum_forward_calls)
 
 
-def load_task_config(path: Path, expected_sha256: str) -> DecisionRAGTaskConfig | DecisionRAGTaskConfigV2:
+class DecisionRAGTaskConfigV3(DecisionRAGTaskConfigV2):
+    version: Literal["citequest-decisionrag-task/3"]
+    resource_profile_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    document_keep: int = Field(default=2, ge=1, le=8)
+    section_keep: int = Field(default=4, ge=1, le=8)
+    passage_keep: int = Field(default=5, ge=1, le=8)
+    max_batches_per_level: int = Field(default=8, ge=1, le=8)
+    maximum_forward_calls: int = Field(default=24, ge=2, le=24)
+    active_seconds: int = Field(default=120, ge=1, le=120)
+    local_input_token_limit: int = Field(default=262144, ge=1, le=262144)
+    maximum_leaf_reads: int = Field(default=8, ge=1, le=8)
+    hybrid_keep: int = Field(default=5, ge=1, le=20)
+    minimum_route_probability: float = Field(default=0.5, ge=0, le=1)
+
+    @property
+    def navigation_protocol(self) -> str:
+        return "structure1"
+
+    @model_validator(mode="after")
+    def structural_capacity(self):
+        if (self.section_keep > self.shortlist_count or self.hybrid_keep > self.max_passages
+                or self.passage_keep > self.maximum_leaf_reads
+                or self.hybrid_keep + self.maximum_leaf_reads > 20
+                or not math.isfinite(self.minimum_route_probability)):
+            raise ValueError("structural selection counts must fit their explicit shortlist and read budgets")
+        return self
+
+    def limits(self, seconds: float):
+        raise AgentError("structure_navigation_requires_structure_tool")
+
+
+class DecisionRAGTaskConfigV4(DecisionRAGTaskConfigV3):
+    version: Literal["citequest-decisionrag-task/4"]
+    minimum_route_probability: float = Field(default=0.0, ge=0, le=0)
+    routing_policy: Literal["rank_then_read/1"] = "rank_then_read/1"
+
+    @property
+    def navigation_protocol(self) -> str:
+        return "structure2"
+
+
+def load_task_config(path: Path, expected_sha256: str) -> DecisionRAGTaskConfig | DecisionRAGTaskConfigV2 | DecisionRAGTaskConfigV3 | DecisionRAGTaskConfigV4:
     if (path.is_symlink() or not path.is_file() or path.stat().st_size > 16384
             or type(expected_sha256) is not str or len(expected_sha256) != 64):
         raise AgentError("decisionrag_trusted_configuration_required")
     raw = path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != expected_sha256:
         raise AgentError("decisionrag_configuration_changed")
-    kind = DecisionRAGTaskConfigV2 if json.loads(raw).get("version") == "citequest-decisionrag-task/2" else DecisionRAGTaskConfig
+    kind = {"citequest-decisionrag-task/1": DecisionRAGTaskConfig,
+            "citequest-decisionrag-task/2": DecisionRAGTaskConfigV2,
+            "citequest-decisionrag-task/3": DecisionRAGTaskConfigV3,
+            "citequest-decisionrag-task/4": DecisionRAGTaskConfigV4}.get(json.loads(raw).get("version"), DecisionRAGTaskConfig)
     return kind.model_validate_json(raw, strict=True)
 
 
@@ -103,16 +147,21 @@ def task_requests_navigation(task: dict) -> bool:
     value = task["profile"].get("evidence_navigation_protocol")
     if value is None:
         return False
-    if (value not in {TASK_PROTOCOL, "laya2"} or task["kind"] != "qa"
+    if (value not in {TASK_PROTOCOL, "laya2", "structure1", "structure2"} or task["kind"] != "qa"
             or task["profile"].get("profile_id") != "qa-v9"
             or task["profile"].get("qa_content_protocol") != "isolated1"):
         raise AgentError("decisionrag_Task_profile_not_supported")
+    if value in {"structure1", "structure2"}:
+        from citequest.agents_v3.product_profiles import require_navigation_source_selection
+        require_navigation_source_selection(task["profile"], task.get("brief", {}))
     return True
 
 
 def navigate_task_evidence(config: DecisionRAGTaskConfig, query: str, ref_ids: list[str], *,
                           access, context: Callable[[], dict], remaining_ms: int) -> dict:
     """One durable MCP attempt owns these two real local probability forwards."""
+    if isinstance(config, DecisionRAGTaskConfigV3):
+        raise AgentError("structure_navigation_requires_structure_tool")
     if isinstance(config, DecisionRAGTaskConfigV2):
         return _navigate_task_evidence_v2(config, query, ref_ids, access=access,
             context=context, remaining_ms=remaining_ms)
@@ -265,7 +314,8 @@ def validate_task_receipt(config: DecisionRAGTaskConfigV2, body: dict, ref_ids: 
             raise ValueError("receipt contract")
 
     try:
-        require(isinstance(config, DecisionRAGTaskConfigV2) and type(body) is dict)
+        require(isinstance(config, DecisionRAGTaskConfigV2) and not isinstance(config, DecisionRAGTaskConfigV3)
+            and type(body) is dict)
         require(body.get("navigation_protocol") == "laya2" and body.get("status") in {"ok", "error"}
             and body.get("input_frontier_ref_ids") == ref_ids
             and body.get("configuration_value_sha256") == digest(config.model_dump(mode="json"))

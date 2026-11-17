@@ -1,0 +1,23 @@
+{
+  "version": "citequest-decisionrag-task/3",
+  "resource_profile_sha256": "cb0f9ce5c104b113b827fd01584e29d5457b614ae8ea69cfcb64abed0079a725",
+  "judge": {
+    "version": "citequest-decisionrag-remote/2",
+    "base_url": "http://127.0.0.1:18032",
+    "bearer_token_file": "/run/secrets/decisionrag-token"
+  },
+  "max_documents": 20,
+  "max_passages": 20,
+  "document_keep": 2,
+  "section_keep": 4,
+  "passage_keep": 5,
+  "shortlist_count": 8,
+  "max_batches_per_level": 8,
+  "maximum_forward_calls": 24,
+  "active_seconds": 120,
+  "local_input_token_limit": 262144,
+  "max_shared_bytes": 32768,
+  "maximum_leaf_reads": 8,
+  "hybrid_keep": 5,
+  "minimum_route_probability": 0.5
+}

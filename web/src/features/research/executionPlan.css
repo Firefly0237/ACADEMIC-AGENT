@@ -1,0 +1,56 @@
+.cq-execution-plan {
+  margin: 1.5rem 0;
+  padding: clamp(1rem, 3vw, 1.75rem);
+  background: var(--cq-surface, #fff);
+  border: 1px solid var(--cq-border, #dce5e8);
+  border-radius: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cq-execution-heading, .cq-execution-actions, .cq-execution-node-heading { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+.cq-execution-heading { justify-content: space-between; align-items: flex-start; }
+.cq-execution-heading h3 { margin: .4rem 0 .75rem; font-size: 1.375rem; line-height: 1.5; letter-spacing: normal; }
+.cq-execution-eyebrow { margin: 0; font-size: .875rem; color: var(--cq-muted, #5b747b); }
+.cq-execution-status { background: var(--cq-tint, #eef5f6); color: var(--cq-link, #206274); border-radius: 6px; padding: .35rem .65rem; font-size: .875rem; }
+.cq-execution-intro { max-width: 64ch; line-height: 1.75; }
+.cq-execution-scope { font-size: .875rem; color: var(--cq-muted, #5b747b); }
+.cq-execution-queries { min-width: 0; border: 0; padding: 0; margin: 1.5rem 0; }
+.cq-execution-queries legend { font-weight: 600; padding: 0; font-size: 1rem; }
+.cq-execution-query { background: var(--cq-bg, #f7f9fa); border: 1px solid var(--cq-border, #dce5e8); border-radius: 10px; margin-top: 1rem; padding: 1rem; min-width: 0; }
+.cq-execution-question-number { margin: 0 0 .35rem; font-size: .8125rem; color: var(--cq-muted, #5b747b); }
+.cq-execution-query h4 { margin: 0 0 1rem; font-size: 1.0625rem; font-weight: 600; line-height: 1.65; }
+.cq-execution-query label { display: block; font-size: .875rem; }
+.task .cq-execution-query textarea, .cq-execution-query textarea { margin: .5rem 0 .3rem; min-height: 5rem; border-radius: 6px; width: 100%; max-width: 100%; font-size: 1rem; line-height: 1.7; }
+.cq-execution-before { font-size: .875rem; color: var(--cq-muted, #5b747b); white-space: pre-wrap; }
+.cq-execution-details { padding: 1rem 0; border-top: 1px solid var(--cq-border, #dce5e8); }
+.cq-execution-details > summary, .cq-execution-technical > summary, .cq-execution-diff > summary { cursor: pointer; color: var(--cq-link, #206274); }
+.cq-execution-technical { margin-top: 1rem; font-size: .875rem; }
+.cq-execution-nodes { padding-left: 1.25rem; }
+.cq-execution-nodes li { padding: .75rem 0; border-bottom: 1px solid var(--cq-border, #dce5e8); }
+.cq-execution-nodes li p { margin: .4rem 0; }
+.cq-execution-node-heading code { color: var(--cq-muted, #5b747b); font-size: .8125rem; }
+.cq-execution-resources { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: .75rem; }
+.cq-execution-resources > div { padding: .75rem; background: var(--cq-bg, #f7f9fa); border-radius: 8px; }
+.cq-execution-resources dt { color: var(--cq-muted, #5b747b); }
+.cq-execution-resources dd { margin: .35rem 0 0; font-weight: 600; }
+.cq-execution-bindings { font-size: .8125rem; }
+.cq-execution-bindings dd { margin: .2rem 0 .75rem; overflow-wrap: anywhere; }
+.cq-execution-diff { margin: 1rem 0; padding: 1rem; background: var(--cq-tint, #eef5f6); border-radius: 10px; }
+.cq-execution-diff > div { margin-top: .75rem; }
+.cq-execution-diff p { margin: .4rem 0; white-space: pre-wrap; }
+.cq-execution-diff p > span { font-size: .875rem; color: var(--cq-muted, #5b747b); margin-right: .5rem; }
+.cq-execution-guidance { font-size: .875rem; line-height: 1.75; }
+.cq-execution-actions { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--cq-border, #dce5e8); }
+.cq-execution-actions button { min-height: 44px; padding: .65rem 1rem; border-radius: 8px; }
+.cq-execution-actions .primary { font-weight: 600; }
+.cq-execution-record { margin: 1.5rem 0; padding-top: 1rem; border-top: 1px solid var(--cq-border, #dce5e8); }
+.cq-execution-setting { display: flex; align-items: flex-start; gap: .6rem; margin: 1rem 0; }
+.cq-execution-setting input { margin-top: .35rem; flex: 0 0 auto; }
+.cq-execution-setting small { display: block; color: var(--cq-muted, #5b747b); font-size: .8125rem; }
+@media (max-width: 640px) {
+  .cq-execution-plan { padding: 14px; margin: 1rem 0; }
+  .cq-execution-heading h3 { font-size: 1.25rem; }
+  .cq-execution-query { padding: 12px; }
+  .cq-execution-actions { align-items: stretch; flex-direction: column; }
+  .cq-execution-actions button { width: 100%; }
+}

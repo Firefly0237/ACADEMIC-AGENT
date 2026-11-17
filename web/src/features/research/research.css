@@ -43,7 +43,7 @@
 }
 .cq-field-state {
   display: inline-block;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: var(--cq-muted, #5b747b);
   font-weight: 400;
   margin-left: 8px;
@@ -90,6 +90,7 @@
 .cq-table-scroll {
   overflow-x: auto;
   max-width: 100%;
+  min-width: 0;
 }
 .cq-table-scroll table {
   border-collapse: collapse;
@@ -162,3 +163,18 @@
 .export-jobs li { padding: .75rem 0; border-bottom: 1px solid var(--cq-border, #dce5e8); }
 .export-jobs a { margin: .5rem .5rem .5rem 0; }
 @media (max-width: 650px) { .school-contents ol { columns: 1; } }
+@media (max-width: 640px) {
+  .cq-brief-grid {
+    gap: 16px;
+  }
+  .cq-brief-sources,
+  .cq-proposal,
+  .cq-version-conflict,
+  .cq-planning-gate,
+  .school-contents {
+    padding: 14px;
+  }
+  .draft-candidates fieldset {
+    padding: 12px;
+  }
+}

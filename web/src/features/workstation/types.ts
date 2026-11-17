@@ -62,10 +62,13 @@ export type Note = NoteContent &
 export type TaskSummary = {
   task_id: string;
   kind: string;
+  category?: "qa" | "summary" | "compare" | "stance" | "research_plan" | "experiment_design" |
+    "research_suggestions" | "draft_intake" | "research_review" | "research_revision" | "research" | "other";
   state: string;
   project_id: string;
   revision: number;
   created_at: string;
+  updated_at?: string;
   detail_path: string;
 };
 export type Page<T> = {
