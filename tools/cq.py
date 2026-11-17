@@ -88,6 +88,7 @@ def release_descriptor(stack: dict[str, Any], root: Path = ROOT) -> dict[str, An
 
 def verify_release_files(stack: dict[str, Any], root: Path = ROOT) -> dict[str, Any] | None:
     """Check only declared non-secret release files before any lifecycle action."""
+    root = root.resolve()
     release = release_descriptor(stack, root)
     if release is None:
         return None
@@ -370,6 +371,7 @@ def cache_plan(root: Path = ROOT) -> list[str]:
 
 
 def clean_cache(root: Path = ROOT, *, apply: bool = False) -> dict[str, Any]:
+    root = root.resolve()
     paths = cache_plan(root)
     removed = []
     errors = []
