@@ -55,7 +55,7 @@ class NewTaskProfile(Strict):
     qa_context_protocol: Literal["references1"] | None = Field(default=None, exclude_if=lambda value: value is None)
     qa_content_protocol: Literal["anchored2", "online1", "isolated1"] | None = Field(default=None, exclude_if=lambda value: value is None)
     qa_retrieval_protocol: Literal["adaptive1"] | None = Field(default=None, exclude_if=lambda value: value is None)
-    evidence_navigation_protocol: Literal["laya1", "laya2"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    evidence_navigation_protocol: Literal["laya1", "laya2", "structure1", "structure2"] | None = Field(default=None, exclude_if=lambda value: value is None)
     retrieval_rerank_protocol: Literal["tei-cross-encoder1"] | None = Field(default=None, exclude_if=lambda value: value is None)
     rerank_config_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$", exclude_if=lambda value: value is None)
 
@@ -79,7 +79,7 @@ class NewTaskProfile(Strict):
             raise ValueError("decomposed content review requires the registered QA9 profile")
         if self.evidence_navigation_protocol is not None and (
                 (self.kind, self.profile_id) != ("qa", "qa-v9") or self.qa_content_protocol != "isolated1"):
-            raise ValueError("Laya evidence navigation requires the independently reviewed QA9 workflow")
+            raise ValueError("evidence navigation requires the independently reviewed QA9 workflow")
         if self.profile_id in {"qa-v8", "qa-v9"}:
             if self.kind != "qa" or any(getattr(self, key) != value for key, value in QA8_PROTOCOL_METADATA.items()):
                 raise ValueError("anchored QA requires its complete explicit reasoning and review protocol")
@@ -201,11 +201,20 @@ def retrieval_rerank_protocol(task: dict) -> str | None:
 
 def evidence_navigation_protocol(task: dict) -> str | None:
     value = task["profile"].get(EVIDENCE_NAVIGATION_BINDING_KEY)
-    if value is not None and (value not in {"laya1", "laya2"} or task.get("kind") != "qa"
+    if value is not None and (value not in {"laya1", "laya2", "structure1", "structure2"} or task.get("kind") != "qa"
             or task["profile"].get("profile_id") != "qa-v9"
             or qa_content_protocol(task) != "isolated1"):
         raise AgentError("task_evidence_navigation_not_supported", 503)
     return value
+
+
+def require_navigation_source_selection(profile: dict, brief: dict) -> None:
+    """Structural expansion is admitted only within an explicit selected-source set."""
+    if profile.get(EVIDENCE_NAVIGATION_BINDING_KEY) not in {"structure1", "structure2"}:
+        return
+    selected = brief.get("selected_papers")
+    if not isinstance(selected, list) or not 1 <= len(selected) <= 20:
+        raise AgentError("structure_navigation_requires_selected_sources", 422)
 
 
 def qa_content_protocol(task: dict) -> str | None:

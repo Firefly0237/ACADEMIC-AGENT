@@ -25,7 +25,8 @@ TOOL_NAMES = {"search_evidence", "read_evidence"}
 WORKSET_TOOL_NAMES = {"plan_workset", "read_source_window", "verify_evidence_batch"}
 TOOL_ARGUMENTS = {"search_evidence": {"query", "limit"}, "read_evidence": {"ref_id"},
     "plan_workset": set(), "read_source_window": {"window_id"}, "verify_evidence_batch": {"ref_ids"},
-    "search_chunk_evidence": {"query", "limit"}, "navigate_issued_evidence": {"query", "ref_ids"}}
+    "search_chunk_evidence": {"query", "limit"}, "navigate_issued_evidence": {"query", "ref_ids"},
+    "navigate_source_structure": {"query", "ref_ids"}}
 
 
 def require_atomic_stance_review(execution: Execution, binding: dict) -> None:
@@ -191,6 +192,25 @@ class MCPTools:
         await self.check_scope()
         return result
 
+    async def navigate_sources(self, query: str, ref_ids: list[str], *, logical_key: str,
+                               planning_context: dict | None = None) -> dict:
+        if not self.decisionrag_enabled or self.navigation_config.navigation_protocol not in {"structure1", "structure2"}:
+            raise AgentError("structure_navigation_Task_profile_not_enabled")
+        if type(ref_ids) is not list or len(ref_ids) > 20 or len(set(ref_ids)) != len(ref_ids):
+            raise AgentError("structure_navigation_initial_refs_invalid")
+        await self.check_scope()
+        result = await self.call("navigate_source_structure", {"query": query, "ref_ids": ref_ids},
+            logical_key=logical_key, planning_context=planning_context)
+        if result.get("evidence_ref_ids"):
+            verified = await self.call("verify_evidence_batch", {"ref_ids": result["evidence_ref_ids"]},
+                logical_key=logical_key + ":verify-expanded", planning_context=planning_context)
+            pins = {row["ref_id"]: row for row in verified.get("evidence", verified.get("pins", []))}
+            if (not verified.get("valid", verified.get("status") == "ok") or set(pins) != set(result["evidence_ref_ids"])
+                    or any(pins[row["ref_id"]].get("source_sha256") != row["source_sha256"] for row in result["evidence"])):
+                raise AgentError("structure_navigation_issued_evidence_changed")
+        await self.check_scope()
+        return result
+
     async def __aenter__(self) -> MCPTools:
         if self.lazy:
             return self
@@ -258,7 +278,7 @@ class MCPTools:
                 if uses_typed_chunk_tools(task) else
                 TOOL_NAMES | WORKSET_TOOL_NAMES if kind == "research" else WORKSET_TOOL_NAMES if kind in {"summary", "compare"} else TOOL_NAMES)
             if self.decisionrag_enabled:
-                expected.add("navigate_issued_evidence")
+                expected.add("navigate_source_structure" if self.navigation_config.navigation_protocol in {"structure1", "structure2"} else "navigate_issued_evidence")
             if {tool.name for tool in listing.tools} != expected:
                 raise AgentError("mcp_tool_catalog_mismatch")
             self.catalog = {tool.name: tool.inputSchema for tool in listing.tools}
@@ -341,10 +361,11 @@ class MCPTools:
             "verify_evidence_batch": "Reauthorize up to64 Task-issued source-window pins and return current literal hashes without source text.",
             "search_chunk_evidence": "Retrieve permitted pinned source chunks with explicit per-document candidate allocation.",
             "navigate_issued_evidence": "Rank a bounded frontier of existing Task-issued refs with two real local Laya probability decisions; no text clipping or authority expansion.",
+            "navigate_source_structure": "Route compact selected-source descriptions and read current authorized original ranges, retaining retrieval evidence.",
         }
         result = []
         for name, schema in sorted(self.catalog.items()):
-            if name == "navigate_issued_evidence" or name == "search_chunk_evidence" and self.rerank_enabled:
+            if name in {"navigate_issued_evidence", "navigate_source_structure"} or name == "search_chunk_evidence" and self.rerank_enabled:
                 schema = json.loads(json.dumps(schema))
                 schema.get("properties", {}).pop("remaining_ms", None)
                 schema["required"] = [field for field in schema.get("required", []) if field != "remaining_ms"]
@@ -357,7 +378,8 @@ class MCPTools:
             raise AgentError("mcp_tool_not_allowed")
         if not isinstance(arguments, dict) or set(arguments) - TOOL_ARGUMENTS[name]:
             raise AgentError("mcp_arguments_not_allowed")
-        navigation = name == "navigate_issued_evidence"
+        navigation = name in {"navigate_issued_evidence", "navigate_source_structure"}
+        structure_navigation = name == "navigate_source_structure"
         reranking = name == "search_chunk_evidence" and self.rerank_enabled
         if navigation and not self.decisionrag_enabled:
             raise AgentError("decisionrag_Task_profile_not_enabled")
@@ -430,13 +452,14 @@ class MCPTools:
             seconds = self.execution.mark_sent(attempt["id"])
             wire_arguments = arguments
             if navigation:
-                wire_arguments = {**arguments, "remaining_ms": max(1, min(25000,
+                wire_arguments = {**arguments, "remaining_ms": max(1, min(120000 if structure_navigation else 25000,
                     self.navigation_config.active_seconds * 1000, int(seconds * 1000)))}
                 self.execution.progress("decisionrag_navigation", "started")
             if reranking:
                 wire_arguments = {**arguments, "remaining_ms": max(1, min(30000, int(seconds * 1000)))}
                 self.execution.progress("cross_encoder_rerank", "started")
-            result = await asyncio.wait_for(self.session.call_tool(name, wire_arguments), min(seconds, 30))
+            result = await asyncio.wait_for(self.session.call_tool(name, wire_arguments),
+                min(seconds, self.navigation_config.active_seconds if structure_navigation else 30))
             received = True
             if result.isError:
                 texts = [item.text for item in result.content if item.type == "text"]
@@ -449,7 +472,7 @@ class MCPTools:
                     raise AgentError("mcp_result_structure_invalid")
                 body = json.loads(texts[0])
             research_v5 = task["kind"] == "research" and task["profile"].get("profile_id") in {"research-v5", "research-v6"}
-            if not isinstance(body, dict) or len(canonical(body)) > (131072 if qa5 or research_v5 else 32000):
+            if not isinstance(body, dict) or len(canonical(body)) > (524288 if structure_navigation else 131072 if qa5 or research_v5 else 32000):
                 raise AgentError("mcp_result_byte_limit")
             if reranking:
                 from citequest.research_v3.rerank import validate_receipt
@@ -457,7 +480,19 @@ class MCPTools:
             if navigation:
                 usage = body.get("local_usage") or {}
                 refs, trace = body.get("evidence_ref_ids"), body.get("trace")
-                if self.navigation_config.navigation_protocol == "laya2":
+                if structure_navigation:
+                    from citequest.research_v3.source_navigation import validate_structure_receipt
+                    validate_structure_receipt(self.navigation_config, body, arguments["ref_ids"])
+                    if body["status"] == "error":
+                        code = body.get("error_code") or "structure_navigation_failed"
+                        self.execution.observe_tool_receipt(attempt["id"], body)
+                        if body["unknown_outcome"]:
+                            self.execution.unknown(attempt["id"], code)
+                        else:
+                            self.execution.settle(attempt["id"], body, None)
+                        settled = True
+                        raise AgentError(code)
+                elif self.navigation_config.navigation_protocol == "laya2":
                     from citequest.research_v3.decisionrag_task import validate_task_receipt
                     validate_task_receipt(self.navigation_config, body, arguments["ref_ids"])
                     if body["status"] == "error":
@@ -493,7 +528,7 @@ class MCPTools:
             return body
         except BaseException as exc:
             if not settled:
-                if navigation and self.navigation_config.navigation_protocol == "laya2":
+                if navigation and self.navigation_config.navigation_protocol in {"laya2", "structure1", "structure2"}:
                     code = exc.code if isinstance(exc, AgentError) else type(exc).__name__
                     try:
                         if received and isinstance(body, dict):

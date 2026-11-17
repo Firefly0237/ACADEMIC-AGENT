@@ -16,6 +16,7 @@ def test_owned_setup_failure_finishes_without_leaving_a_running_command(monkeypa
     campaign = SimpleNamespace(require_worker=lambda *_: None)
     database = SimpleNamespace(development_dispatch_policy=None, development_campaign_policy=campaign)
     execution = SimpleNamespace(task_id=uuid4(), run_id=uuid4(),
+        snapshot=lambda: {"kind": "qa", "profile": {"profile_id": "qa-v9", "model_alias": "synthetic-model"}},
         finish=lambda state, **kwargs: finished.append((state, kwargs)))
 
     @contextmanager
@@ -39,6 +40,8 @@ def test_owned_setup_failure_finishes_without_leaving_a_running_command(monkeypa
 
     config = SimpleNamespace(mode="live", database=lambda: database, limits=object(),
         api_key_file=Path("synthetic-key-reference"), metadata_receipt_file=Path("synthetic-receipt-reference"),
+        model_metadata_receipt_files=None, decisionrag_config_file=None, decisionrag_config_sha256=None,
+        rerank_config_file=None, rerank_config_sha256=None, catalog_scope_policy=None,
         temporary_directory=SimpleNamespace(mkdir=mkdir))
     monkeypatch.setattr(worker, "claim", claimed)
     monkeypatch.setattr(worker, "MemoryService", lambda _db: SimpleNamespace(flush=flush))

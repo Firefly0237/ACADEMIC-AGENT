@@ -21,10 +21,10 @@ import type {
   SavedPaperItem,
   SourceAvailability,
   TaskLaunch,
-  TaskSummary,
   WorkspacePanelProps,
 } from "./types";
 import { CollectionManager } from "./CollectionManager";
+import { TaskList } from "./TaskList";
 import "./workspace.css";
 
 const Markdown = lazy(() =>
@@ -60,17 +60,6 @@ const kindName = (value: string) =>
     research: "研究计划",
     research_plan: "研究计划",
   })[value] || "研究任务";
-const stateName = (value: string) =>
-  ({
-    queued: "排队中",
-    running: "正在执行",
-    waiting_input: "等待补充",
-    succeeded: "已完成",
-    partial: "部分完成",
-    failed: "未完成",
-    cancelled: "已取消",
-    reconciling: "正在核对执行结果",
-  })[value] || "状态待核实";
 
 export function WorkspacePanel(props: WorkspacePanelProps) {
   return <WorkspaceScope key={props.identity.owner_id} {...props} />;
@@ -92,7 +81,6 @@ function WorkspaceScope({
   const [legacy, setLegacy] = useState(page<LibraryItem>);
   const [collections, setCollections] = useState(page<Collection>);
   const [history, setHistory] = useState(page<HistoryItem>);
-  const [tasks, setTasks] = useState(page<TaskSummary>);
   const [briefs, setBriefs] = useState(page<BriefSummary>);
   const [materials, setMaterials] = useState(page<Material>);
   const [query, setQuery] = useState("");
@@ -205,7 +193,6 @@ function WorkspaceScope({
     setSaved(page());
     setLegacy(page());
     setHistory(page());
-    setTasks(page());
     setMaterials(page());
     setBriefs(page());
     setNotice("");
@@ -239,10 +226,7 @@ function WorkspaceScope({
               controller.signal,
             ).then(setHistory)
           : tab === "tasks"
-            ? get<Page<TaskSummary>>(
-                `${WORKSPACE}/tasks?limit=20`,
-                controller.signal,
-              ).then(setTasks)
+            ? Promise.resolve()
             : tab === "materials"
               ? get<Page<Material>>(
                   "/api/v3/materials?page_size=20",
@@ -718,7 +702,7 @@ function WorkspaceScope({
           ["materials", "我的材料"],
           ["research", "研究项目"],
           ["history", "浏览与检索历史"],
-          ["tasks", "任务与产物"],
+          ["tasks", "我的任务"],
         ].map(([value, label]) => (
           <button
             key={value}
@@ -1434,65 +1418,13 @@ function WorkspaceScope({
         </section>
       )}
       {tab === "tasks" && (
-        <section>
-          <h2>任务与已保存产物</h2>
-          <p className="muted">
-            这里显示真实任务状态。打开产物时会重新核对来源权限、记忆版本和内容审查结果。
-          </p>
-          {tasks.items.map((item) => (
-            <article className="cq-task-row" key={item.task_id}>
-              <div>
-                <h3>{kindName(item.kind)}</h3>
-                <p>
-                  {stateName(item.state)} · 第{item.revision}版
-                </p>
-                <small>{day(item.created_at)}</small>
-              </div>
-              <button
-                disabled={
-                  !onOpenTask &&
-                  (!renderTask ||
-                    !["qa", "summary", "compare", "stance"].includes(item.kind))
-                }
-                onClick={() => {
-                  if (onOpenTask) onOpenTask(item.task_id);
-                  else
-                    setLaunch({
-                      selected: [],
-                      kind: item.kind as TaskLaunch["kind"],
-                      catalog: "application_papers",
-                      resumeTaskId: item.task_id,
-                    });
-                }}
-              >
-                打开任务与产物
-              </button>
-            </article>
-          ))}
-          {!loading && !error && !tasks.items.length && (
-            <p className="empty">
-              还没有研究任务。可以从选中文献提问，或先建立研究档案。
-            </p>
-          )}
-          {tasks.next_cursor && (
-            <button
-              disabled={busy}
-              onClick={() =>
-                action(async () => {
-                  const next = await get<Page<TaskSummary>>(
-                    `${WORKSPACE}/tasks?limit=20&cursor=${encodeURIComponent(tasks.next_cursor!)}`,
-                  );
-                  setTasks((current) => ({
-                    items: [...current.items, ...next.items],
-                    next_cursor: next.next_cursor,
-                  }));
-                })
-              }
-            >
-              加载更多任务
-            </button>
-          )}
-        </section>
+        <TaskList identity={identity}
+          canOpen={item => !!onOpenTask || (!!renderTask && ["qa", "summary", "compare", "stance"].includes(item.kind))}
+          onOpen={item => {
+            if (onOpenTask) onOpenTask(item.task_id);
+            else setLaunch({ selected: [], kind: item.kind as TaskLaunch["kind"],
+              catalog: "application_papers", resumeTaskId: item.task_id });
+          }} />
       )}
       {launch && renderTask && (
         <section className="cq-task-launch" aria-label="文献AI任务">

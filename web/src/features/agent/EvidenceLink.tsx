@@ -83,19 +83,22 @@ export function EvidenceLink({ taskId, refId, focus, sourceBinding }: { taskId: 
   const original = allowedSourceURL(value?.source_url);
   return <div className="evidence-link">
     <button className="link-button" disabled={busy} aria-expanded={!!value} aria-controls={regionId} onClick={open}>
-      {busy ? "正在核对原文权限…" : value ? "收起原文证据" : focus?.quote_locator ? "定位引用原文 ↗" : "查看当前可授权原文 ↗"}
+      {busy ? "正在打开原文…" : value ? "收起原文" : focus?.quote_locator ? "查看引用所在原文 ↗" : "查看来源原文 ↗"}
     </button>
     {!!error && <p className="notice" role="alert">{errorText(error)} 原文未展示；可重新读取。</p>}
     {value && <section id={regionId} className="evidence" aria-label="原文证据窗口">
-      <p><strong>当前可授权原文</strong> · {coverage === "metadata" || coverage === "metadata_only" ? "仅题录与摘要" : coverage === "native_literal" ? "来源原始文本" : "材料已解析文本"}</p>
-      <p className="muted">原文字符 {value.span_start}–{value.span_end}，结束位置不含在内；字符位置不等同于 PDF 页码。</p>
-      {parts ? <p className="evidence-location">已定位引用：字符 {focus!.quote_locator!.span_start}–{focus!.quote_locator!.span_end}</p>
-        : focus?.quote_locator ? <p className="notice" role="status">引用坐标与当前窗口无法精确对应，未自动高亮。请核对完整原文窗口。</p> : null}
-      <pre className="evidence-text">{parts ? <>{parts[0]}<mark ref={highlight} tabIndex={-1}>{parts[1]}</mark>{parts[2]}</> : value.text}</pre>
+      <p><strong>{focus?.quote_locator ? "引用所在原文" : "来源原文"}</strong> · {coverage === "metadata" || coverage === "metadata_only" ? "仅题录与摘要" : coverage === "native_literal" ? "来源原始文本" : "材料已解析文本"}</p>
+      {parts ? <p className="evidence-location">已突出显示本条引用。</p>
+        : focus?.quote_locator ? <p className="notice" role="status">未能准确定位这条引用，暂未高亮。请打开来源核对。</p> : null}
       {value.locator?.kind === "pdf" && Number.isSafeInteger(value.locator.page_1based) && value.locator.page_1based! > 0
-        && <p className="muted">解析来源定位：原 PDF 第 {value.locator.page_1based} 页。请打开材料核对该页。</p>}
+        && <p className="muted">原文件第 {value.locator.page_1based} 页，可打开材料核对。</p>}
+      <pre className="evidence-text">{parts ? <>{parts[0]}<mark ref={highlight} tabIndex={-1}>{parts[1]}</mark>{parts[2]}</> : value.text}</pre>
       {path && <p><Link to={path}>打开来源详情与原文入口 ↗</Link></p>}
       {original && <p><a href={original} target="_blank" rel="noreferrer">打开原始材料 ↗</a></p>}
+      <details><summary>精确定位记录</summary>
+        <p className="muted">原文字符 {value.span_start}–{value.span_end}，结束位置不含在内。字符位置不同于 PDF 页码。</p>
+        {parts && <p className="muted">引用字符 {focus!.quote_locator!.span_start}–{focus!.quote_locator!.span_end}。</p>}
+      </details>
     </section>}
   </div>;
 }

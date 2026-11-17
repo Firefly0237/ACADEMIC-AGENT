@@ -85,8 +85,9 @@ class NoRedirect(HTTPRedirectHandler):
 
 class RemoteBinaryJudge:
     """The owning MCP invocation supplies one absolute monotonic deadline."""
-    def __init__(self, config: RemoteJudgeConfig, *, deadline: float):
+    def __init__(self, config: RemoteJudgeConfig, *, deadline: float, expected_resource_profile_sha256: str | None = None):
         self.config, self.deadline = config, deadline
+        self.expected_resource_profile_sha256 = expected_resource_profile_sha256
         self.token = token_from_file(config.bearer_token_file)
         self.opener = build_opener(ProxyHandler({}), NoRedirect())
         self.preflight_tokens: dict[str, int] = {}
@@ -129,10 +130,23 @@ class RemoteBinaryJudge:
         if value.get("status") != "ok":
             code = value.get("error_code")
             if code not in {"laya_complete_context_exceeds_token_budget", "laya_shared_question_capacity",
-                "laya_reserved_mask_token_in_source", "decisionrag_physical_deadline_exceeded"}:
+                "laya_reserved_mask_token_in_source", "decisionrag_physical_deadline_exceeded",
+                "navigation_padded_shape_capacity", "navigation_estimated_peak_memory_capacity",
+                "navigation_remaining_deadline_capacity", "navigation_calibrated_latency_exceeds_deadline",
+                "navigation_latency_calibration_required", "navigation_concurrency_capacity", "navigation_deadline_context_required",
+                "navigation_execution_adapter_unavailable", "navigation_recorded_timeout_shape"}:
                 code = "decisionrag_local_probability_failed"
-            raise AgentError(code)
+            error = AgentError(code)
+            error.forward_not_started = value.get("forwards") == 0 and value.get("forward_started") is False
+            error.resource_admission = value.get("resource_admission")
+            raise error
         require_model_binding(value.get("model_binding"), sequence_tokens=self.config.sequence_tokens)
+        if self.expected_resource_profile_sha256 is not None:
+            admission = value.get("resource_admission") or (value.get("usage") or {}).get("resource_admission")
+            if (value["model_binding"].get("resource_profile_sha256") != self.expected_resource_profile_sha256
+                    or not isinstance(admission, dict) or admission.get("profile_sha256") != self.expected_resource_profile_sha256
+                    or admission.get("admitted") is not True):
+                raise AgentError("navigation_resource_profile_binding_mismatch")
         return value
 
     def preflight(self, request: DecisionRequest) -> None:

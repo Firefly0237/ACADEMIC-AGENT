@@ -25,6 +25,7 @@ REVIEW_SUFFIX = '+review-function1'
 STRICT_REVIEW_SUFFIX = '+review-chatstrict1'
 LENGTH_REVIEW_SUFFIX = '+review-chatstrict2'
 JSON_REVIEW_SUFFIX = '+review-json1'
+EXECUTION_APPROVAL_SUFFIX = '+execution-approval1'
 CatalogScopePolicy = Literal['task-catalog-snapshot/1']
 
 
@@ -44,12 +45,15 @@ def graph_version(kind: str, profile_id: str | None, policy: str | None, transpo
                   structured_output: str | None = None, answer_revision: str | None = None,
                   qa_context: str | None = None, qa_content: str | None = None,
                   evidence_navigation: str | None = None, retrieval_rerank: str | None = None,
-                  rerank_sha256: str | None = None, qa_retrieval: str | None = None) -> str:
+                  rerank_sha256: str | None = None, qa_retrieval: str | None = None,
+                  execution_plan: str | None = None) -> str:
     if policy not in {None, POLICY}:
         raise AgentError('unsupported_catalog_scope_policy', 503)
+    if execution_plan is not None and (execution_plan != 'approval1' or (kind, profile_id) != ('research', 'research-v6')):
+        raise AgentError('task_execution_plan_protocol_not_supported', 503)
     if qa_content is not None and (qa_content not in {'anchored2', 'online1', 'isolated1'} or (kind, profile_id) != ('qa', 'qa-v9')):
         raise AgentError('task_qa_content_protocol_not_supported', 503)
-    if evidence_navigation is not None and (evidence_navigation not in {'laya1', 'laya2'}
+    if evidence_navigation is not None and (evidence_navigation not in {'laya1', 'laya2', 'structure1', 'structure2'}
             or (kind, profile_id, qa_content, policy) != ('qa', 'qa-v9', 'isolated1', POLICY)):
         raise AgentError('task_evidence_navigation_not_supported', 503)
     if qa_retrieval is not None and (qa_retrieval != 'adaptive1'
@@ -123,7 +127,8 @@ def graph_version(kind: str, profile_id: str | None, policy: str | None, transpo
         base = QA_REFERENCE_CONTEXT_GRAPH_VERSION
     api_suffix = {None: '', 'chat-strict1': STRICT_REVIEW_SUFFIX, 'chat-strict2': LENGTH_REVIEW_SUFFIX, 'chat-json1': '+review-chatjson1'}[review_api]
     transport_suffix = {None: '', 'function1': REVIEW_SUFFIX, 'json1': JSON_REVIEW_SUFFIX}[transport]
-    return base + transport_suffix + api_suffix + (SUFFIX if policy is not None else '')
+    execution_suffix = EXECUTION_APPROVAL_SUFFIX if execution_plan is not None else ''
+    return base + transport_suffix + api_suffix + execution_suffix + (SUFFIX if policy is not None else '')
 
 
 def graph_versions(policy: str | None) -> tuple[str, ...]:
@@ -159,7 +164,13 @@ def graph_versions(policy: str | None) -> tuple[str, ...]:
         'chat-json2', 'jsonpatch1', 'references1', 'isolated1', 'laya2', rerank,
         '0' * 64 if rerank else None, retrieval)
         for rerank in (None, 'tei-cross-encoder1') for retrieval in (None, 'adaptive1')) if policy == POLICY else ()
-    return old + reviewed + grounded + reranked + adaptive + batched
+    structural = tuple(graph_version('qa', 'qa-v9', policy, 'json1', 'grounded3', 'chat-json2',
+        'chat-json2', 'jsonpatch1', 'references1', 'isolated1', navigation, rerank,
+        '0' * 64 if rerank else None, retrieval)
+        for navigation in ('structure1', 'structure2')
+        for rerank in (None, 'tei-cross-encoder1') for retrieval in (None, 'adaptive1')) if policy == POLICY else ()
+    approved = (graph_version('research', 'research-v6', policy, execution_plan='approval1'),)
+    return old + reviewed + grounded + reranked + adaptive + batched + approved + structural
 
 
 def require_schema(db, policy: str | None) -> None:
@@ -192,13 +203,13 @@ def require_runtime(task: dict, configured: str | None) -> None:
 
 def current_runtime(task: dict, configured: str | None) -> bool:
     return (task_policy(task) == configured and task['graph_version'] ==
-        graph_version(task['kind'], task['profile'].get('profile_id'), configured, review_transport(task), qa_execution_protocol(task), review_api_protocol(task), structured_output_protocol(task), answer_revision_protocol(task), qa_context_protocol(task), qa_content_protocol(task), evidence_navigation_protocol(task), retrieval_rerank_protocol(task), task['profile'].get('rerank_config_sha256'), qa_retrieval_protocol(task)))
+        graph_version(task['kind'], task['profile'].get('profile_id'), configured, review_transport(task), qa_execution_protocol(task), review_api_protocol(task), structured_output_protocol(task), answer_revision_protocol(task), qa_context_protocol(task), qa_content_protocol(task), evidence_navigation_protocol(task), retrieval_rerank_protocol(task), task['profile'].get('rerank_config_sha256'), qa_retrieval_protocol(task), task.get('brief', {}).get('execution_plan_protocol')))
 
 
 def readable_runtime(task: dict) -> bool:
     # A reader can validate either known immutable policy. Dispatch lane/
     # creation settings do not decide whether a result may be projected/exported.
-    return task['graph_version'] == graph_version(task['kind'], task['profile'].get('profile_id'), task_policy(task), review_transport(task), qa_execution_protocol(task), review_api_protocol(task), structured_output_protocol(task), answer_revision_protocol(task), qa_context_protocol(task), qa_content_protocol(task), evidence_navigation_protocol(task), retrieval_rerank_protocol(task), task['profile'].get('rerank_config_sha256'), qa_retrieval_protocol(task))
+    return task['graph_version'] == graph_version(task['kind'], task['profile'].get('profile_id'), task_policy(task), review_transport(task), qa_execution_protocol(task), review_api_protocol(task), structured_output_protocol(task), answer_revision_protocol(task), qa_context_protocol(task), qa_content_protocol(task), evidence_navigation_protocol(task), retrieval_rerank_protocol(task), task['profile'].get('rerank_config_sha256'), qa_retrieval_protocol(task), task.get('brief', {}).get('execution_plan_protocol'))
 
 
 def required_scopes(brief: dict) -> dict[str, list[PaperLocator]]:

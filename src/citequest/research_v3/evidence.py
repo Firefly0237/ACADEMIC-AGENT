@@ -35,6 +35,15 @@ class EvidenceAccess:
             if row is None:
                 raise AgentError("evidence_not_issued_to_task", 404)
             pinned = row["payload"]
+        if pinned.get("evidence_type") == "source_structure_scope":
+            from .source_navigation_sources import NavigationSources, scope_evidence
+            manifest = pinned.get("manifest")
+            if (not isinstance(manifest, dict) or task["profile"].get("evidence_navigation_protocol") not in {"structure1", "structure2"}
+                    or scope_evidence(actor, task_id, manifest) != pinned):
+                raise AgentError("navigation_scope_evidence_invalid", 409)
+            NavigationSources(self.search, self.materials).verify(actor, task_id, manifest,
+                [item.model_dump(mode="json") for item in brief.selected_papers])
+            return pinned
         if task['profile'].get('catalog_scope_policy') is not None:
             from citequest.agents_v3.catalog_scope import CatalogPins
             CatalogPins(self.database, self.search).authorize_evidence(actor, task_id, [pinned])
@@ -75,7 +84,9 @@ class EvidenceAccess:
             raise AgentError("evidence_not_issued_to_task", 404)
         if task['profile'].get('catalog_scope_policy') is not None:
             from citequest.agents_v3.catalog_scope import CatalogPins
-            CatalogPins(self.database, self.search).authorize_evidence(actor, task_id, [item['payload'] for item in rows])
+            ordinary = [item['payload'] for item in rows if item['payload'].get('evidence_type') != 'source_structure_scope']
+            if ordinary:
+                CatalogPins(self.database, self.search).authorize_evidence(actor, task_id, ordinary)
         selected = {(item.kind, item.id) for item in brief.selected_papers}
         windows = []
         for item in rows:

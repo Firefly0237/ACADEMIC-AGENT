@@ -38,7 +38,7 @@ def save(path: Path, value: object) -> None:
 
 
 def main() -> None:
-    if sys.argv[1:] != ["--execute"]:
+    if sys.argv[1:] not in (["--execute"], ["--execute", "--prepare-source-structures"]):
         raise ValueError("Explicit authorized native-chain import required")
     sys.path.insert(0, str(ROOT / "scripts/s03"))
     from bootstrap import dsn
@@ -92,7 +92,8 @@ def main() -> None:
         save(run / "snapshot.json", {**result, "importer_owner_id": str(actor.owner_id)})
         with factory() as db:
             landing = Landing(Catalog(db, actor), policy_sha256=policy, evaluation_sha256=evaluation)
-            registrar = NativePaperRegistrar(landing, store, ROOT)
+            registrar = NativePaperRegistrar(landing, store, ROOT,
+                prepare_source_structures="--prepare-source-structures" in sys.argv[1:])
             candidates = sorted(registrar.candidates)
             outcomes = []
             for number, rank in enumerate(candidates, 1):

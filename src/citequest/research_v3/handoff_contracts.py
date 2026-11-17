@@ -72,7 +72,8 @@ def source_keys(entries: list[dict]) -> list[str]:
 
 
 def collect_handoff_audit(entries: list[dict], receipts: dict[str, dict], *, task_id: str,
-                          command_id: str, brief_sha256: str, profile_sha256: str) -> dict:
+                          command_id: str, brief_sha256: str, profile_sha256: str,
+                          prior_command_id: str | None = None) -> dict:
     records = []
     for entry in entries:
         if digest(entry["artifact"]) != entry["sha256"]:
@@ -93,14 +94,20 @@ def collect_handoff_audit(entries: list[dict], receipts: dict[str, dict], *, tas
                         != binding.revision.resolved_conflict_refs):
                 raise AgentError("research_handoff_revision_scope_invalid")
         sources = []
+        source_commands = set()
         for key, schema in binding.sources.items():
             if key not in receipts:
                 raise AgentError("research_handoff_settled_receipt_missing")
             source = ModelReceipt.model_validate(receipts[key], strict=True)
-            if source.logical_key != key or source.schema_name != schema or not key.startswith(command_id + ":"):
+            origin = key.split(":", 1)[0]
+            if (source.logical_key != key or source.schema_name != schema
+                    or origin not in {command_id, prior_command_id}):
                 raise AgentError("research_handoff_receipt_identity_invalid")
+            source_commands.add(origin)
             sources.append(source)
-        records.append(HandoffAudit(task_id=task_id, command_id=command_id,
+        if len(source_commands) > 1:
+            raise AgentError("research_handoff_receipt_identity_ambiguous")
+        records.append(HandoffAudit(task_id=task_id, command_id=next(iter(source_commands), command_id),
             brief_sha256=brief_sha256, profile_sha256=profile_sha256, role=entry["role"],
             artifact_sha256=entry["sha256"], parent_artifact_sha256s=binding.parents,
             sources=sources, authority="versioned_user_brief" if user else "settled_model_artifact",

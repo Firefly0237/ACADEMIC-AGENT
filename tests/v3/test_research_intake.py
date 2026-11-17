@@ -178,8 +178,9 @@ def test_clearing_a_field_invalidates_readiness_and_open_candidates() -> None:
 def test_duplicate_fields_and_oversized_drafts_are_not_silently_trimmed() -> None:
     with pytest.raises(DomainError, match="duplicate_brief_field"):
         turn(empty(), FieldPatch(field="topic", value="A"), FieldPatch(field="topic", value="B"))
-    with pytest.raises(ValidationError):
+    with pytest.raises(DomainError, match="invalid_research_brief_update") as caught:
         turn(empty(), *(FieldPatch(field=field, value="字" * 8000) for field in REQUIRED))
+    assert caught.value.status == 422
 
 
 def test_resolved_conflict_cannot_be_applied_again_as_a_new_operation() -> None:

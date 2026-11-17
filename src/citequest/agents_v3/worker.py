@@ -21,7 +21,7 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 import httpx2
 from pydantic import Field, model_validator
 
-from .catalog_scope import CatalogScopePolicy
+from .catalog_scope import CatalogScopePolicy, graph_versions
 from .contracts import AgentError, RuntimeLimits, Strict
 from .database import Database, claim
 from .development_campaign import load_campaign
@@ -131,6 +131,15 @@ async def _run_graph_to_completion(run: Callable[[], None], on_cancel: Callable[
         raise failure
 
 
+def configured_graph_versions(config: WorkerConfig) -> tuple[str, ...]:
+    """A worker must not claim a different navigation ABI and fail it later."""
+    from citequest.research_v3.decisionrag_task import load_task_config
+    protocol = (load_task_config(config.decisionrag_config_file, config.decisionrag_config_sha256).navigation_protocol
+        if getattr(config, 'decisionrag_config_file', None) is not None else None)
+    return tuple(version for version in graph_versions(getattr(config, 'catalog_scope_policy', None))
+        if '+evidence-' not in version or protocol is not None and '+evidence-' + protocol + '+' in version)
+
+
 async def run_once(config: WorkerConfig, *, transport: httpx2.MockTransport | None = None, worker_id: str | None = None,
                    task_id: UUID | None = None) -> dict:
     started = time.monotonic()
@@ -147,15 +156,21 @@ async def run_once(config: WorkerConfig, *, transport: httpx2.MockTransport | No
     memory = MemoryService(database)
     if campaign is None:
         memory.flush()
-    with claim(database, worker_id or str(uuid4()), limits=config.limits, task_id=task_id) as execution:
+    with claim(database, worker_id or str(uuid4()), limits=config.limits, task_id=task_id,
+            eligible_graph_versions=configured_graph_versions(config)) as execution:
         if execution is None:
             return {"status": "idle"}
         provider = None
         graph_stopping = asyncio.Event()
         try:
-            from citequest.research_v3.decisionrag_task import task_requests_navigation
-            if task_requests_navigation(execution.snapshot()) and config.decisionrag_config_file is None:
-                raise AgentError("decisionrag_runtime_not_configured")
+            from citequest.research_v3.decisionrag_task import load_task_config, task_requests_navigation
+            navigation_task = execution.snapshot()
+            if task_requests_navigation(navigation_task):
+                if config.decisionrag_config_file is None:
+                    raise AgentError("decisionrag_runtime_not_configured")
+                navigation_config = load_task_config(config.decisionrag_config_file, config.decisionrag_config_sha256)
+                if navigation_config.navigation_protocol != navigation_task["profile"]["evidence_navigation_protocol"]:
+                    raise AgentError("decisionrag_runtime_protocol_mismatch", 503)
             from .product_profiles import retrieval_rerank_protocol
             rerank_task = execution.snapshot()
             if retrieval_rerank_protocol(rerank_task) is not None and (

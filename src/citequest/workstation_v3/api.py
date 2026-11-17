@@ -21,6 +21,7 @@ from citequest.v2.services import Catalog
 from .contracts import Activity, BatchSave, ClearHistory
 from .search_activity import SearchActivityInput, project_searches, record_search
 from .service import WorkstationService
+from .task_listing import TaskStateGroup
 
 
 def build_router(
@@ -112,8 +113,10 @@ def build_router(
         project_id: UUID | None = None,
         limit: int = Query(20, ge=1, le=50),
         cursor: str | None = Query(None, max_length=4096),
+        state_group: TaskStateGroup = "all",
     ) -> dict:
-        return invoke(WorkstationService(service, pager).tasks, project_id=project_id, limit=limit, cursor=cursor)
+        return invoke(WorkstationService(service, pager).tasks, project_id=project_id, limit=limit,
+                      cursor=cursor, state_group=state_group)
 
     @router.post("/briefs", status_code=201)
     def create_brief(body: BriefCreate, service: Service) -> dict:

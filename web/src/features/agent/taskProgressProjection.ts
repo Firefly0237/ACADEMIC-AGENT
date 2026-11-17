@@ -8,6 +8,8 @@ export type ProgressBudget = {
 };
 
 const responsibilities: Record<string, string> = {
+  research_execution_plan_prepare: "执行计划与版本准备",
+  research_execution_plan_approval: "人工批准与检索词调整",
   qa5_plan: "问题理解与检索规划", qa37_review_goals: "独立需求审查",
   qa5_author: "基于证据回答", qa5_review: "独立回答审查",
   research_outline_write: "研究问题规划", research_outline_review: "独立提纲审查",

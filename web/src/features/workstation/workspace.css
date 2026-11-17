@@ -293,3 +293,20 @@
     width: 100%;
   }
 }
+@media (max-width: 640px) {
+  .content > .cq-workspace {
+    padding: 0;
+  }
+  .cq-workspace-heading {
+    gap: 12px;
+  }
+  .cq-workspace-tabs button {
+    flex: 1 1 auto;
+  }
+  .cq-history-row,
+  .cq-task-row,
+  .cq-entry-editor,
+  .cq-task-launch {
+    padding: 14px;
+  }
+}

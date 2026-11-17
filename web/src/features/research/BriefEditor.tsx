@@ -105,7 +105,7 @@ export function BriefEditor({
   const selectedSchoolProfileId = schoolProfileEdit ?? savedSchoolProfileId;
   const selectedSchoolProfile = schoolProfiles?.profiles.find(profile => profile.id === selectedSchoolProfileId);
   const schoolProfileLabel = (profileId: string | null | undefined) =>
-    schoolProfiles?.profiles.find(profile => profile.id === (profileId || LEGACY_SCHOOL_PROFILE))?.label || profileId || "原有学校格式";
+    schoolProfiles?.profiles.find(profile => profile.id === (profileId || LEGACY_SCHOOL_PROFILE))?.label || "已保存格式（名称待核对）";
   const missingBibliography = snapshot?.readiness.missing_material_bibliography || [];
   const experimentReadiness = snapshot?.readiness.experiment_readiness;
   const materialReferences = document?.selected_sources.filter(source => source.kind === "material_file"
@@ -374,9 +374,14 @@ export function BriefEditor({
         </span>
       </div>
       <p className="muted">
-        先回答当前最关键的三项即可。方法、基线等尚未确定时可以先保存或请助手提出建议，建议经你确认后才成为研究要求。
+        先回答当前最关键的三项即可。方法、比较对象等尚未确定时可以先保存或请助手提出建议，建议经你确认后才成为研究要求。
       </p>
-      <section className="cq-brief-sources" aria-label="学校与年级格式">
+      <p className="muted">不适用于本研究的条目，可以填写“不适用”并说明原因；保存时仍作为你确认的说明。尚未确定的内容再选择“暂未确定”。</p>
+      <p className="muted">文稿格式：{selectedSchoolProfile?.label || (selectedSchoolProfileId ? schoolProfileLabel(selectedSchoolProfileId) : "正在读取可用格式…")}
+        {schoolProfileEdit !== undefined ? " · 尚未保存" : ""}</p>
+      <details className="cq-brief-sources">
+        <summary>文稿格式与适用要求（按需查看）</summary>
+        <p className="muted">以下设置用于生成研究计划书。当前可选的是特定学校与年级的格式，不代表各学科通用要求；阅读、检索与独立实验设计无需采用其文稿结构。</p>
         <label htmlFor="brief-school-profile">学校与年级格式</label>
         <select id="brief-school-profile" value={selectedSchoolProfileId || ""}
           disabled={busy || !!latest || !schoolProfiles}
@@ -394,7 +399,7 @@ export function BriefEditor({
           <p className="muted">文献综述不少于 {selectedSchoolProfile.literature_minimum_han} 汉字（<a href={selectedSchoolProfile.literature_requirement_source_url || selectedSchoolProfile.source_url} target="_blank" rel="noreferrer">要求出处</a>）。
             系统写作篇幅为 {selectedSchoolProfile.demonstration_minimum_han}–{selectedSchoolProfile.demonstration_maximum_han} 汉字。</p>
         </>}
-      </section>
+      </details>
       {!!document?.selected_sources.length && (
         <section className="cq-brief-sources">
           <h3>已关联的研究资料 · {document.selected_sources.length} 份</h3>

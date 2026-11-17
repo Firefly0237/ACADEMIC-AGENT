@@ -12,13 +12,13 @@ import pytest
 from citequest.agents_v3 import worker
 
 
-def test_unavailable_decisionrag_configuration_is_rejected_before_claim():
+def test_unpaired_decisionrag_configuration_is_rejected_before_claim():
     values = {"limits": {"mode": "bounded"}, "business_dsn_file": Path("business"),
         "checkpoint_dsn_file": Path("checkpoint"), "memory_dsn_file": Path("memory"),
         "skill_root": Path("skills"), "temporary_directory": Path("tmp"), "mode": "live", "tool_mode": "search"}
     config = worker.WorkerConfig.model_validate(values)
     assert "decisionrag_config_file" not in config.model_dump(mode="json")
-    with pytest.raises(ValueError, match="DecisionRAG runtime configuration is not enabled"):
+    with pytest.raises(ValueError, match="DecisionRAG requires both trusted configuration file and exact SHA"):
         worker.WorkerConfig.model_validate({**values, "decisionrag_config_file": Path("candidate.json")})
 
 
@@ -30,7 +30,7 @@ def consumer(monkeypatch, tmp_path):
         database = SimpleNamespace(development_dispatch_policy=None, development_campaign_policy=None)
         execution = SimpleNamespace(task_id=task_id, run_id=run_id, epoch=1,
             snapshot=lambda: {"kind": "research" if research else "qa", "owner_id": owner,
-                "profile": {"profile_id": "research-v4"}},
+                "profile": {"profile_id": "research-v4" if research else "qa-v9", "model_alias": "synthetic-model"}},
             finish=lambda *_args, **_kwargs: events.append("finish"))
 
         @contextmanager
@@ -72,10 +72,12 @@ def consumer(monkeypatch, tmp_path):
 
         config = SimpleNamespace(mode="live", database=lambda: database, limits=object(),
             api_key_file=Path("synthetic-key"), metadata_receipt_file=Path("synthetic-receipt"),
+            model_metadata_receipt_files=None,
             temporary_directory=tmp_path, tool_mode="fixture", business_dsn_file=Path("synthetic-dsn"),
             search_config_file=Path("synthetic-search") if research else None,
             material_config_file=Path("synthetic-material") if research else None,
-            fixture_evidence_file=None, decisionrag_config_file=None, catalog_scope_policy=None,
+            fixture_evidence_file=None, decisionrag_config_file=None, decisionrag_config_sha256=None,
+            rerank_config_file=None, rerank_config_sha256=None, catalog_scope_policy=None,
             skill_root=tmp_path)
         monkeypatch.setattr(worker, "claim", claim)
         monkeypatch.setattr(worker, "MemoryService", lambda _db: SimpleNamespace(flush=lambda: None))
@@ -151,7 +153,7 @@ def test_reference_preflight_cleans_native_clients_and_sql_engines(consumer, mon
         "citequest.research_v3.evidence": SimpleNamespace(EvidenceAccess=lambda *_args: SimpleNamespace()),
         "citequest.research_v3.school_export": SimpleNamespace(reference_preflight=lambda *_args, **_kwargs: {}),
         "citequest.agents_v3.research_task": SimpleNamespace(**{name: lambda graph: graph
-            for name in ("ResearchTaskGraph", "ResearchTaskGraphV4", "ResearchTaskGraphV5")}),
+            for name in ("ResearchTaskGraph", "ResearchTaskGraphV4", "ResearchTaskGraphV5", "ResearchTaskGraphV6")}),
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
 
