@@ -1,0 +1,15 @@
+{
+  "version": "citequest-search-runtime/1",
+  "workspace": "/opt/citequest",
+  "dsn_file": "/run/core-secrets/business_sqlalchemy_dsn",
+  "cursor_key_file": "/run/core-secrets/cursor_key",
+  "milvus_uri": "http://milvus:19530",
+  "milvus_database": "default",
+  "tei_info_url": "http://tei:8080/info",
+  "function_endpoint": "http://tei-strict:8080",
+  "source_storage_mode": "application_local_cas",
+  "backend_profile_sha256": "REPLACE_WITH_ADOPTED_BACKEND_PROFILE_SHA256",
+  "policy_sha256": "REPLACE_WITH_ADOPTED_SEARCH_POLICY_SHA256",
+  "evaluation_sha256": "REPLACE_WITH_ADOPTED_SEARCH_EVALUATION_SHA256",
+  "native_pdf_asset_profile_file": null
+}

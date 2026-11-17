@@ -1,0 +1,157 @@
+{
+  "$defs": {
+    "EvidenceSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "metadata_projection",
+            "native_representation",
+            "material_file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "EvidenceSelection",
+      "type": "object"
+    },
+    "ResearchBrief": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "citequest-agent-brief/1",
+          "default": "citequest-agent-brief/1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "question": {
+          "default": "",
+          "maxLength": 8000,
+          "title": "Question",
+          "type": "string"
+        },
+        "kind": {
+          "default": "qa",
+          "enum": [
+            "qa",
+            "summary",
+            "compare",
+            "stance"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "requested_direction": {
+          "default": "neutral",
+          "enum": [
+            "neutral",
+            "support",
+            "refute"
+          ],
+          "title": "Requested Direction",
+          "type": "string"
+        },
+        "objective": {
+          "default": "Answer the research question using permitted evidence.",
+          "maxLength": 2000,
+          "title": "Objective",
+          "type": "string"
+        },
+        "catalog": {
+          "default": "application_papers",
+          "enum": [
+            "application_papers",
+            "standard_metadata"
+          ],
+          "title": "Catalog",
+          "type": "string"
+        },
+        "selected_papers": {
+          "items": {
+            "$ref": "#/$defs/EvidenceSelection"
+          },
+          "maxItems": 20,
+          "title": "Selected Papers",
+          "type": "array"
+        },
+        "constraints": {
+          "items": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Constraints",
+          "type": "array"
+        },
+        "unknowns": {
+          "items": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Unknowns",
+          "type": "array"
+        }
+      },
+      "title": "ResearchBrief",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "operation_id": {
+      "format": "uuid",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "profile_id": {
+      "default": "qa-v1",
+      "enum": [
+        "qa-v1",
+        "stance-v1-r2",
+        "workset-v1"
+      ],
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "kind": {
+      "default": "qa",
+      "enum": [
+        "qa",
+        "summary",
+        "compare",
+        "stance"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "brief": {
+      "$ref": "#/$defs/ResearchBrief"
+    }
+  },
+  "required": [
+    "project_id",
+    "operation_id",
+    "brief"
+  ],
+  "title": "TaskCreate",
+  "type": "object"
+}

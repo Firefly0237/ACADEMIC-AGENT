@@ -1,0 +1,37 @@
+{
+  "schema_version": "citequest-material-worker-profile/2",
+  "profile_id": "docling-cpu-formula-enrichment-v2",
+  "platform": "linux",
+  "memory_limit_bytes": 3221225472,
+  "logical_cpu_limit": 2,
+  "deadline_seconds": 120,
+  "max_processes": 1,
+  "max_log_bytes_each": 1048576,
+  "max_output_artifact_bytes": 67108864,
+  "minimum_host_available_bytes": 4294967296,
+  "ocr_enabled": false,
+  "formula_enrichment": true,
+  "remote_services": false,
+  "external_plugins": false,
+  "parser_versions": {
+    "docling": "2.146.0",
+    "docling-core": "2.105.0",
+    "pypdf": "6.21.4",
+    "pypdfium2": "5.14.0",
+    "torch": "2.15.0+cpu",
+    "torchvision": "0.29.2+cpu",
+    "transformers": "5.22.1",
+    "rapidocr": "3.10.0",
+    "filetype": "1.2.0"
+  },
+  "model_manifest": "assets/parser/models.json",
+  "model_manifest_sha256": "REPLACE_WITH_VERIFIED_MANIFEST_SHA256",
+  "model_cache_root": "data/models/docling",
+  "docling_options": {
+    "schema_version": "citequest-docling-options/1",
+    "mode": "formula",
+    "ocr_language": "ch",
+    "ocr_files": {}
+  },
+  "environment_lock": "runtime/s04-linux-cpu-v2/uv.lock"
+}

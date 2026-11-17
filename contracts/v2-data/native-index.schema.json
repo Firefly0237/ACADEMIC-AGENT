@@ -1,0 +1,279 @@
+{
+  "$defs": {
+    "NativeIndexProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "source_kind": {
+          "const": "s2orc_native",
+          "default": "s2orc_native",
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "representation_profile": {
+          "const": "litsearch-s2orc-native-text/1",
+          "default": "litsearch-s2orc-native-text/1",
+          "title": "Representation Profile",
+          "type": "string"
+        },
+        "projection_id": {
+          "format": "uuid",
+          "title": "Projection Id",
+          "type": "string"
+        },
+        "source_row_id": {
+          "format": "uuid",
+          "title": "Source Row Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "format": "uuid",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "native_id": {
+          "title": "Native Id",
+          "type": "string"
+        },
+        "source_namespace": {
+          "const": "litsearch_s2orc",
+          "default": "litsearch_s2orc",
+          "title": "Source Namespace",
+          "type": "string"
+        },
+        "security_domain": {
+          "title": "Security Domain",
+          "type": "string"
+        },
+        "source_revision": {
+          "title": "Source Revision",
+          "type": "string"
+        },
+        "representation_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Representation Id",
+          "type": "string"
+        },
+        "projection_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Projection Sha256",
+          "type": "string"
+        },
+        "source_pointer_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Pointer Sha256",
+          "type": "string"
+        },
+        "source_text_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Text Sha256",
+          "type": "string"
+        },
+        "codec_profile_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Codec Profile Sha256",
+          "type": "string"
+        },
+        "literal_text": {
+          "maxLength": 200000,
+          "minLength": 1,
+          "title": "Literal Text",
+          "type": "string"
+        },
+        "work_id": {
+          "format": "uuid",
+          "title": "Work Id",
+          "type": "string"
+        },
+        "work_version_id": {
+          "format": "uuid",
+          "title": "Work Version Id",
+          "type": "string"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "maximum": 2200,
+              "minimum": 1000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Year"
+        },
+        "source_reference": {
+          "$ref": "#/$defs/PaperSourceReference"
+        },
+        "snapshot_state": {
+          "enum": [
+            "landing",
+            "staged",
+            "disabled"
+          ],
+          "title": "Snapshot State",
+          "type": "string"
+        },
+        "profile_adopted": {
+          "title": "Profile Adopted",
+          "type": "boolean"
+        },
+        "coordinate_system": {
+          "const": "unicode_codepoint",
+          "default": "unicode_codepoint",
+          "title": "Coordinate System",
+          "type": "string"
+        },
+        "original_PDF_text_coverage_claimed": {
+          "const": false,
+          "default": false,
+          "title": "Original Pdf Text Coverage Claimed",
+          "type": "boolean"
+        },
+        "index_staging_is_not_QA_permission": {
+          "const": true,
+          "default": true,
+          "title": "Index Staging Is Not Qa Permission",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "projection_id",
+        "source_row_id",
+        "snapshot_id",
+        "native_id",
+        "security_domain",
+        "source_revision",
+        "representation_id",
+        "projection_sha256",
+        "source_pointer_sha256",
+        "source_text_sha256",
+        "codec_profile_sha256",
+        "literal_text",
+        "work_id",
+        "work_version_id",
+        "year",
+        "source_reference",
+        "snapshot_state",
+        "profile_adopted"
+      ],
+      "title": "NativeIndexProjection",
+      "type": "object"
+    },
+    "NativeRepresentationPointer": {
+      "additionalProperties": false,
+      "properties": {
+        "representation_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Representation Id",
+          "type": "string"
+        },
+        "source_row_id": {
+          "format": "uuid",
+          "title": "Source Row Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "format": "uuid",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "security_domain": {
+          "title": "Security Domain",
+          "type": "string"
+        },
+        "index_projection_id": {
+          "format": "uuid",
+          "title": "Index Projection Id",
+          "type": "string"
+        },
+        "source_text_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Text Sha256",
+          "type": "string"
+        },
+        "profile": {
+          "const": "citequest-native-s2orc-literal/1",
+          "title": "Profile",
+          "type": "string"
+        },
+        "profile_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Profile Sha256",
+          "type": "string"
+        },
+        "storage_security_domain": {
+          "title": "Storage Security Domain",
+          "type": "string"
+        },
+        "draft_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Draft Sha256",
+          "type": "string"
+        },
+        "source_reference": {
+          "$ref": "#/$defs/PaperSourceReference"
+        },
+        "immutable_blob_pointer": {
+          "const": true,
+          "default": true,
+          "title": "Immutable Blob Pointer",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "representation_id",
+        "source_row_id",
+        "snapshot_id",
+        "security_domain",
+        "index_projection_id",
+        "source_text_sha256",
+        "profile",
+        "profile_sha256",
+        "storage_security_domain",
+        "draft_sha256",
+        "source_reference"
+      ],
+      "title": "NativeRepresentationPointer",
+      "type": "object"
+    },
+    "PaperSourceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "source_kind": {
+          "const": "paper",
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "work_version_id": {
+          "format": "uuid",
+          "title": "Work Version Id",
+          "type": "string"
+        },
+        "source_snapshot_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Snapshot Sha256",
+          "type": "string"
+        },
+        "representation_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Representation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_kind",
+        "work_version_id",
+        "source_snapshot_sha256",
+        "representation_id"
+      ],
+      "title": "PaperSourceReference",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://citequest.local/contracts/v2-data/native-index/1",
+  "$ref": "#/$defs/NativeIndexProjection",
+  "x-contract-version": "0.5.0-proposal.1",
+  "x-state": "typed_source_identity_and_staging_never_QA_or_application_freeze"
+}

@@ -1,0 +1,9 @@
+{
+  "version": "citequest-decisionrag-service-runtime/1",
+  "CPU_base": {"tag": "citequest-s04-linux:0.3.0-cpu-xyz", "image_id": "sha256:d87e267f79a2b19b196e90898247233a9ec48eb80201929bcf2caa72d10f0d00", "lock": "runtime/s04-linux-cpu-v2/requirements.txt", "lock_sha256": "7bf83fc5f805dc3cbd6c0e1035bb640b6b0b09d793164b8fd6ff3a7e838d0fff"},
+  "ASGI_source": {"tag": "citequest-s07-web:0.9.1-core", "image_id": "sha256:e61cbd4df4b6bdc357c5715d6a7cf64197826a033e9808acb5540b5dd9f6483d"},
+  "added_distributions": {"fastapi": "0.162.0", "starlette": "1.10.0", "uvicorn": "0.54.0", "opentelemetry-api": "1.45.2"},
+  "retained_CPU_distributions": {"torch": "2.15.0+cpu", "transformers": "5.22.1", "huggingface-hub": "1.33.0", "tokenizers": "0.23.3", "safetensors": "0.8.0", "numpy": "2.5.4", "pydantic": "2.14.2", "anyio": "4.16.0", "typing-extensions": "4.16.0", "typing-inspection": "0.4.5", "annotated-doc": "0.0.5", "h11": "0.16.0", "click": "8.5.0"},
+  "network_install": false,
+  "package_copy_scope": "only_RECORD_files_of_added_distributions_no_CPU_package_overwrite"
+}

@@ -1,0 +1,121 @@
+{
+  "contract_version": "2.0.0-s02.1",
+  "runtime": "one LangGraph main graph; role nodes/subgraphs do not own separate cash or Task",
+  "state": "planned_not_executed",
+  "roles": [
+    {
+      "role": "planner",
+      "inputs": [
+        "ResearchBrief",
+        "Message",
+        "Task"
+      ],
+      "outputs": [
+        "TaskPlan"
+      ],
+      "agent_decisions": [
+        "clarify",
+        "plan",
+        "stop"
+      ],
+      "prohibited": [
+        "invent missing user facts",
+        "start generation with candidate profile"
+      ]
+    },
+    {
+      "role": "literature",
+      "inputs": [
+        "TaskPlan",
+        "Scope",
+        "WorkVersion"
+      ],
+      "outputs": [
+        "EvidenceLedger"
+      ],
+      "agent_decisions": [
+        "select tool",
+        "retrieve more",
+        "inspect evidence",
+        "stop insufficient"
+      ],
+      "prohibited": [
+        "relevance means support",
+        "hide contrary evidence",
+        "infer full-field consensus"
+      ]
+    },
+    {
+      "role": "method",
+      "inputs": [
+        "ResearchBrief",
+        "EvidenceLedger"
+      ],
+      "outputs": [
+        "MethodDesign"
+      ],
+      "agent_decisions": [
+        "request constraints",
+        "select feasible design",
+        "return infeasible"
+      ],
+      "prohibited": [
+        "fabricate existing results",
+        "assume data permission",
+        "invent compute resources"
+      ]
+    },
+    {
+      "role": "reviewer",
+      "inputs": [
+        "TaskPlan",
+        "EvidenceLedger",
+        "MethodDesign",
+        "ProposalDraft"
+      ],
+      "outputs": [
+        "ReviewReport"
+      ],
+      "agent_decisions": [
+        "accept scoped checks",
+        "request targeted revision",
+        "stop critical issue"
+      ],
+      "prohibited": [
+        "claim human/expert review",
+        "review only summary as full text",
+        "grant extra revision/cash"
+      ]
+    },
+    {
+      "role": "writer",
+      "inputs": [
+        "ResearchBrief",
+        "EvidenceLedger",
+        "MethodDesign",
+        "ReviewReport"
+      ],
+      "outputs": [
+        "ProposalDraft"
+      ],
+      "agent_decisions": [
+        "write section",
+        "request evidence",
+        "revise bounded sections"
+      ],
+      "prohibited": [
+        "invent citations",
+        "fake identity/signature/achievements",
+        "use new task to escape budget"
+      ]
+    }
+  ],
+  "handoff_rules": [
+    "Each input/output binds task_id,input_revision,artifact hash and root budget profile",
+    "Reject stale input_revision; propagate invalidation when source/brief/body changes",
+    "Record section source ranges and cross-section method/data/metric ledger; a summary is not full review",
+    "Structured role artifacts remain separate from files, checkpoint and UI messages",
+    "Deterministic validators, renderers and duplicate detection are not Agent decisions",
+    "At most two targeted model revision rounds across all sections of same Task; every physical call counted"
+  ]
+}

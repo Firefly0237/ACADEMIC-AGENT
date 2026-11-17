@@ -1,0 +1,15 @@
+{
+  "schema_version": "citequest-publication-command/1",
+  "search_config_file": "/run/core-config/search.json",
+  "owner_id": "00000000-0000-0000-0000-000000000001",
+  "phase": "prepare",
+  "window_id": "00000000-0000-0000-0000-000000000002",
+  "base_generation_id": "00000000-0000-0000-0000-000000000003",
+  "observation_seal_ids": ["00000000-0000-0000-0000-000000000004"],
+  "publication_snapshot_id": "00000000-0000-0000-0000-000000000005",
+  "index_generation_id": "00000000-0000-0000-0000-000000000006",
+  "execution_seconds": 900,
+  "expected_epoch": 1,
+  "intent_id": "00000000-0000-0000-0000-000000000007",
+  "backend_profile_file": null
+}

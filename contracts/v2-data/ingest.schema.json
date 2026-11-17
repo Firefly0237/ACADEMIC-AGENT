@@ -1,0 +1,550 @@
+{
+  "$defs": {
+    "BatchInput": {
+      "additionalProperties": false,
+      "properties": {
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/ProjectionInput"
+          },
+          "maxItems": 500,
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        },
+        "client_operation_id": {
+          "format": "uuid",
+          "title": "Client Operation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rows",
+        "client_operation_id"
+      ],
+      "title": "BatchInput",
+      "type": "object"
+    },
+    "IndexProjection": {
+      "additionalProperties": false,
+      "description": "Internal immutable metadata indexing input; never require a fake Work.\n\nNull and original whitespace remain in title/abstract. A versioned index\ntext builder, tokenizer and generation manifest decide how to encode them.\nThis DTO itself neither adopts a profile nor authorizes publication.",
+      "properties": {
+        "projection_id": {
+          "format": "uuid",
+          "title": "Projection Id",
+          "type": "string"
+        },
+        "source_row_id": {
+          "format": "uuid",
+          "title": "Source Row Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "format": "uuid",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "native_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Native Id",
+          "type": "string"
+        },
+        "source_namespace": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Source Namespace",
+          "type": "string"
+        },
+        "source_revision": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Source Revision",
+          "type": "string"
+        },
+        "security_domain": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Security Domain",
+          "type": "string"
+        },
+        "source_kind": {
+          "const": "litsearch_title_abstract",
+          "default": "litsearch_title_abstract",
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "purpose": {
+          "const": "standard",
+          "default": "standard",
+          "title": "Purpose",
+          "type": "string"
+        },
+        "representation_profile": {
+          "enum": [
+            "litsearch-clean-exact/1",
+            "litsearch-native-annotation-decimal-offsets/1"
+          ],
+          "title": "Representation Profile",
+          "type": "string"
+        },
+        "source_pointer_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Pointer Sha256",
+          "type": "string"
+        },
+        "projection_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Projection Sha256",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        },
+        "abstract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Abstract"
+        },
+        "field_provenance": {
+          "additionalProperties": true,
+          "title": "Field Provenance",
+          "type": "object"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "maximum": 2200,
+              "minimum": 1000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        },
+        "work_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Work Id"
+        },
+        "searchable_text_present": {
+          "title": "Searchable Text Present",
+          "type": "boolean"
+        },
+        "profile_adopted": {
+          "title": "Profile Adopted",
+          "type": "boolean"
+        },
+        "snapshot_state": {
+          "enum": [
+            "landing",
+            "staged",
+            "disabled"
+          ],
+          "title": "Snapshot State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "projection_id",
+        "source_row_id",
+        "snapshot_id",
+        "native_id",
+        "source_namespace",
+        "source_revision",
+        "security_domain",
+        "representation_profile",
+        "source_pointer_sha256",
+        "projection_sha256",
+        "title",
+        "abstract",
+        "field_provenance",
+        "work_id",
+        "searchable_text_present",
+        "profile_adopted",
+        "snapshot_state"
+      ],
+      "title": "IndexProjection",
+      "type": "object"
+    },
+    "ProjectionInput": {
+      "additionalProperties": false,
+      "properties": {
+        "native_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Native Id",
+          "type": "string"
+        },
+        "native_id_source_type": {
+          "enum": [
+            "integer",
+            "string"
+          ],
+          "title": "Native Id Source Type",
+          "type": "string"
+        },
+        "locator": {
+          "$ref": "#/$defs/RawRowLocator"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        },
+        "abstract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Abstract"
+        },
+        "field_provenance": {
+          "additionalProperties": true,
+          "title": "Field Provenance",
+          "type": "object"
+        }
+      },
+      "required": [
+        "native_id",
+        "native_id_source_type",
+        "locator",
+        "title",
+        "abstract",
+        "field_provenance"
+      ],
+      "title": "ProjectionInput",
+      "type": "object"
+    },
+    "ProjectionReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "projection_id": {
+          "format": "uuid",
+          "title": "Projection Id",
+          "type": "string"
+        },
+        "source_row_id": {
+          "format": "uuid",
+          "title": "Source Row Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "format": "uuid",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "native_id": {
+          "title": "Native Id",
+          "type": "string"
+        },
+        "representation_profile": {
+          "enum": [
+            "litsearch-clean-exact/1",
+            "litsearch-native-annotation-decimal-offsets/1",
+            "litsearch-s2orc-native-text/1"
+          ],
+          "title": "Representation Profile",
+          "type": "string"
+        },
+        "projection_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Projection Sha256",
+          "type": "string"
+        },
+        "source_pointer_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Pointer Sha256",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        },
+        "abstract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Abstract"
+        },
+        "field_provenance": {
+          "additionalProperties": true,
+          "title": "Field Provenance",
+          "type": "object"
+        },
+        "work_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Work Id"
+        },
+        "resolution": {
+          "enum": [
+            "unresolved",
+            "resolved"
+          ],
+          "title": "Resolution",
+          "type": "string"
+        },
+        "unresolved_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unresolved Reasons",
+          "type": "array"
+        },
+        "searchable_text_present": {
+          "title": "Searchable Text Present",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "projection_id",
+        "source_row_id",
+        "snapshot_id",
+        "native_id",
+        "representation_profile",
+        "projection_sha256",
+        "source_pointer_sha256",
+        "title",
+        "abstract",
+        "field_provenance",
+        "work_id",
+        "resolution",
+        "unresolved_reasons",
+        "searchable_text_present"
+      ],
+      "title": "ProjectionReceipt",
+      "type": "object"
+    },
+    "RawRowLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Artifact Path",
+          "type": "string"
+        },
+        "artifact_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Artifact Sha256",
+          "type": "string"
+        },
+        "row_group": {
+          "minimum": 0,
+          "title": "Row Group",
+          "type": "integer"
+        },
+        "row_in_group": {
+          "minimum": 0,
+          "title": "Row In Group",
+          "type": "integer"
+        },
+        "row_ordinal": {
+          "minimum": 0,
+          "title": "Row Ordinal",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_path",
+        "artifact_sha256",
+        "row_group",
+        "row_in_group",
+        "row_ordinal"
+      ],
+      "title": "RawRowLocator",
+      "type": "object"
+    },
+    "SnapshotInput": {
+      "additionalProperties": false,
+      "properties": {
+        "source_namespace": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Source Namespace",
+          "type": "string"
+        },
+        "source_revision": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Source Revision",
+          "type": "string"
+        },
+        "source_manifest_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Manifest Sha256",
+          "type": "string"
+        },
+        "policy_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Policy Sha256",
+          "type": "string"
+        },
+        "evaluation_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Evaluation Sha256",
+          "type": "string"
+        },
+        "representation_profile": {
+          "enum": [
+            "litsearch-clean-exact/1",
+            "litsearch-native-annotation-decimal-offsets/1",
+            "litsearch-s2orc-native-text/1"
+          ],
+          "title": "Representation Profile",
+          "type": "string"
+        },
+        "purpose": {
+          "enum": [
+            "standard",
+            "application",
+            "metadata_update"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/SourceArtifact"
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "client_operation_id": {
+          "format": "uuid",
+          "title": "Client Operation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_namespace",
+        "source_revision",
+        "source_manifest_sha256",
+        "policy_sha256",
+        "evaluation_sha256",
+        "representation_profile",
+        "purpose",
+        "artifacts",
+        "client_operation_id"
+      ],
+      "title": "SnapshotInput",
+      "type": "object"
+    },
+    "SourceArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "format": {
+          "enum": [
+            "parquet",
+            "jsonl",
+            "json"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "row_group_sizes": {
+          "anyOf": [
+            {
+              "items": {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Row Group Sizes"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes",
+        "format",
+        "row_group_sizes"
+      ],
+      "title": "SourceArtifact",
+      "type": "object"
+    }
+  },
+  "title": "S05 source landing and metadata index input proposal",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://citequest.local/contracts/v2-data/ingest.schema.json",
+  "contract_version": "0.5.0-proposal.2",
+  "x-state": "proposal_no_product_migration_no_profile_adoption"
+}

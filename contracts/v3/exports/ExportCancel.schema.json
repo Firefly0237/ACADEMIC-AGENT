@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "operation_id": {
+      "format": "uuid",
+      "title": "Operation Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation_id"
+  ],
+  "title": "ExportCancel",
+  "type": "object"
+}

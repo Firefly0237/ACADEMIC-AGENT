@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+%{ for name, file in role.config_files ~}
+mkdir -p "$(dirname '/runtime/config/${name}')"
+gcloud storage cp --quiet 'gs://${config_bucket}/${file.object}#${file.generation}' '/runtime/config/${name}' >/dev/null
+printf '%s  %s\n' '${file.sha256}' '/runtime/config/${name}' | sha256sum --check --status
+%{ endfor ~}
+%{ for name, ref in role.secret_files ~}
+gcloud secrets versions access '${element(split("/", ref), 5)}' \
+  --project='${element(split("/", ref), 1)}' --secret='${element(split("/", ref), 3)}' \
+  --out-file='/runtime/secrets/${name}' --quiet
+%{ endfor ~}

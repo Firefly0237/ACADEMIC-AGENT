@@ -1,0 +1,18 @@
+{
+  "id": "sjtu-scs-2025-master-cn-capacity-demo/1",
+  "document_mode": "capacity_demo",
+  "source_url": "https://www.cs.sjtu.edu.cn/bsyjs_notice/1931.html",
+  "template_sha256": "6bd1b4efb2106451686f15c406b9ae03b586939eca0d81604f20ab2c75a2da8d",
+  "csl_sha256": "0ca3d2c7c881cd98cdd81098b5349f5921edf430498aa9a5a41918621cf7cc45",
+  "scope": "2025_grade_SJTU_SCS_master_public_template_not_universal_current_school_policy",
+  "literature_minimum_han": 5000,
+  "demonstration_minimum_han": 8000,
+  "demonstration_maximum_han": 12000,
+  "demonstration_length_is_school_rule": false,
+  "maximum_writing_model_calls": 36,
+  "per_call_output_maximum": 2048,
+  "maximum_target_repairs": 2,
+  "maximum_blocks_per_section": 3,
+  "section_wire_overhead_bytes": 600,
+  "cross_review_mode": "all14_full_literal_sections"
+}

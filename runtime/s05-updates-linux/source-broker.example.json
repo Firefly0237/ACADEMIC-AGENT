@@ -1,0 +1,9 @@
+{
+  "schema_version": "citequest-source-broker/1",
+  "profile_id": "linux-source-broker/1",
+  "workspace": "/opt/citequest",
+  "state_dir": "/var/lib/citequest/state/source-broker",
+  "business_dsn_file": "/run/core-secrets/source-business-dsn",
+  "owner_id": "00000000-0000-0000-0000-000000000001",
+  "dispatch_interval_seconds": 10
+}

@@ -1,0 +1,168 @@
+{
+  "$defs": {
+    "Claim": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 3,
+          "pattern": "^C[1-9][0-9]?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 1500,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "supported",
+            "contradicted",
+            "mixed",
+            "insufficient"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/Edge"
+          },
+          "maxItems": 5,
+          "title": "Edges",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Limitations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "statement",
+        "status",
+        "edges",
+        "limitations"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "Edge": {
+      "additionalProperties": false,
+      "properties": {
+        "ref_id": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Ref Id",
+          "type": "string"
+        },
+        "quote": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "relation": {
+          "enum": [
+            "supports",
+            "contradicts",
+            "context_only"
+          ],
+          "title": "Relation",
+          "type": "string"
+        },
+        "rationale": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Conditions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ref_id",
+        "quote",
+        "relation",
+        "rationale",
+        "conditions"
+      ],
+      "title": "Edge",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "enum": [
+        "qa",
+        "summary",
+        "compare",
+        "stance"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "requested_direction": {
+      "enum": [
+        "neutral",
+        "support",
+        "refute"
+      ],
+      "title": "Requested Direction",
+      "type": "string"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Claims",
+      "type": "array"
+    },
+    "gaps": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Gaps",
+      "type": "array"
+    },
+    "retrieval_scope": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Retrieval Scope",
+      "type": "string"
+    },
+    "evidence_status": {
+      "enum": [
+        "supported",
+        "insufficient"
+      ],
+      "title": "Evidence Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "requested_direction",
+    "claims",
+    "gaps",
+    "retrieval_scope",
+    "evidence_status"
+  ],
+  "title": "ResearchAnswer",
+  "type": "object"
+}

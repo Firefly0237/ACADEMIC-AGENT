@@ -1,0 +1,26 @@
+{
+  "limits": {
+    "mode": "bounded",
+    "owner_cash_ncny": 100000000000,
+    "project_cash_ncny": 500000000000,
+    "owner_active_tasks": 2,
+    "owner_total_tasks": 200
+  },
+  "business_dsn_file": "/run/core-secrets/agent_business_dsn",
+  "checkpoint_dsn_file": "/run/core-secrets/checkpoint_dsn",
+  "memory_dsn_file": "/run/core-secrets/memory_dsn",
+  "api_key_file": "/run/core-secrets/model-key",
+  "search_config_file": "/run/core-config/search.json",
+  "material_config_file": "/run/core-config/material.json",
+  "catalog_scope_policy": "task-catalog-snapshot/1",
+  "skill_root": "/opt/citequest/runtime/s08/skills",
+  "temporary_directory": "/tmp/citequest-agent",
+  "mode": "live",
+  "tool_mode": "search",
+  "model_metadata_receipt_files": {
+    "deepseek-flash": "/run/core-config/metadata-flash.json",
+    "deepseek-v4-pro": "/run/core-config/metadata-pro.json"
+  },
+  "decisionrag_config_file": "/run/core-config/decisionrag-task.json",
+  "decisionrag_config_sha256": "a0b58e07cc037f2ddf1914c4c625fb42725fd195c1af6027d3d0d28e9271871d"
+}

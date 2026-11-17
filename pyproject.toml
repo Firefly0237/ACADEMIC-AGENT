@@ -23,9 +23,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Information Analysis",
 ]
 
-# 运行依赖的分档原则：**在线路径必需**的才进这里。
-# 模型权重类（torch / transformers / sentence-transformers）进 optional-dependencies，
-# 因为 API 容器与离线建库容器需要的模型栈不同，混在一起会让 API 镜像凭空多几个 GB。
+# Root development dependencies. Production images use their role-specific
+# locked requirements referenced by deploy/core/Dockerfile and runtime/.
 dependencies = [
     # --- 向量库。2.6 是硬底线：TEI Embedding Function 官方标注 compatible with 2.6.x ---
     "pymilvus>=2.6.0,<2.7",
@@ -34,19 +33,19 @@ dependencies = [
     "uvicorn[standard]>=0.32,<1.0",
     "sse-starlette>=2.1,<3.0",
     "httpx>=0.27,<1.0",
-    # --- 配置。pydantic-settings 是 §4 参数正本在代码里的载体 ---
+    # --- Configuration ---
     "pydantic>=2.9,<3.0",
     "pydantic-settings>=2.6,<3.0",
-    # --- 编排。主体是 workflow，LangGraph 只承载那一条窄的检索纠正循环 ---
+    # --- LangGraph workflows ---
     "langgraph>=1.0,<2.0",
     "langchain-core>=0.3,<2.0",
-    # --- MCP 官方 Python SDK，stdio only ---
+    # --- Official MCP Python SDK ---
     "mcp>=1.9,<2.0",
     # --- 可观测 ---
     "structlog>=24.4",
     "python-ulid>=3.0",
     "prometheus-client>=0.21",
-    # --- facets_exact：读 parquet 跑 GROUP BY，明确**不引入 Postgres** ---
+    # --- Offline tabular data processing ---
     "duckdb>=1.1",
     "pyarrow>=17.0",
     # --- CLI ---
@@ -69,11 +68,8 @@ ingest = [
 ]
 
 [project.scripts]
-# 对外的正式入口走包内函数，不用裸脚本；scripts/ 下的文件只是薄壳。
-citequest = "citequest.cli:main"
-
-[project.urls]
-Repository = "https://github.com/citequest/citequest"
+# Web service CLI; operational lifecycle commands remain in python tools/cq.py.
+citequest = "citequest.web_v3.main:main"
 
 # ============================================================================
 # PEP 735 依赖组：dev 与 eval 分开，避免评测专用依赖污染主依赖
@@ -171,7 +167,7 @@ warn_required_dynamic_aliases = true
 # pytest
 # ============================================================================
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/v3", "tests/v2/unit"]
 # src layout 下 pytest 官方推荐 importlib 模式：测试跑的是**安装后的包**，
 # 而不是仓库里那份源码副本，打包错误才会在测试阶段就暴露。
 addopts = [

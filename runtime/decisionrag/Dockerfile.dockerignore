@@ -1,0 +1,16 @@
+**
+!src/
+!src/citequest/
+!src/citequest/**
+!contracts/
+!contracts/**
+!scripts/
+!scripts/s14/
+!scripts/s14/**
+!runtime/
+!runtime/decisionrag/
+!runtime/decisionrag/Dockerfile
+!runtime/decisionrag/service-runtime.lock.json
+!runtime/decisionrag/verify_service_runtime.py
+**/__pycache__/**
+**/*.pyc

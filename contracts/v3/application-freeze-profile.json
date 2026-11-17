@@ -1,0 +1,23 @@
+{
+  "schema_version": "cq.application-freeze-profile/1",
+  "profile_id": "litsearch-native-application-adr0015/1",
+  "source_snapshot_id": "e7cabf2f-bf73-5cb9-8846-c1afb3b3ed35",
+  "original_policy_sha256": "79d74a66007e3967a080f36703d470204ec5c5c875478bb9ba0f60221d8af17a",
+  "evaluation_sha256": "26c005f6cc56cda7553f8b42e34aaf3b693944aba17f41274fc21ffeb1676e1b",
+  "stop_rule_adoption_sha256": "20f0b743e94e538dad69152e7812c3a7f61270736b3f29d08522c90512b7db24",
+  "minimum_qualified": 500,
+  "maximum_qualified": 2000,
+  "primary_positions": 3000,
+  "pinned_component_candidates": 692,
+  "stop_rule": "audit_all_fixed_primary_then_freeze_all_qualified_if_minimum_met",
+  "fallback": "only_if_primary_qualified_below_minimum_separate_admission_required",
+  "source_representation": "entire_native_literal_text",
+  "coordinate_system": "unicode_codepoint",
+  "minimum_characters": 2000,
+  "maximum_characters": 200000,
+  "minimum_paragraphs": 5,
+  "minimum_section_headers": 2,
+  "original_pdf_complete_extraction_claimed": false,
+  "third_party_figure_rights_claimed": false,
+  "freeze_grants_qa_or_stage_closure": false
+}

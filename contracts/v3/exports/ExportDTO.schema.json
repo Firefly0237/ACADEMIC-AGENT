@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "ArtifactDTO": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "enum": [
+            "docx",
+            "html",
+            "pdf"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "content_url": {
+          "title": "Content Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "format",
+        "size_bytes",
+        "sha256",
+        "content_url"
+      ],
+      "title": "ArtifactDTO",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "task_id": {
+      "format": "uuid",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "requested_formats": {
+      "items": {
+        "enum": [
+          "docx",
+          "html",
+          "pdf"
+        ],
+        "type": "string"
+      },
+      "title": "Requested Formats",
+      "type": "array"
+    },
+    "availability": {
+      "enum": [
+        "pending",
+        "available",
+        "not_available",
+        "source_unavailable"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "deadline_seconds": {
+      "const": 90,
+      "default": 90,
+      "title": "Deadline Seconds",
+      "type": "integer"
+    },
+    "font_profile": {
+      "title": "Font Profile",
+      "type": "string"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Error Code"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/ArtifactDTO"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "scientific_quality": {
+      "const": "inherits_task_review_not_new_model_evaluation",
+      "default": "inherits_task_review_not_new_model_evaluation",
+      "title": "Scientific Quality",
+      "type": "string"
+    },
+    "submission_ready": {
+      "const": false,
+      "default": false,
+      "title": "Submission Ready",
+      "type": "boolean"
+    },
+    "actual_model_requests": {
+      "const": 0,
+      "default": 0,
+      "title": "Actual Model Requests",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "task_id",
+    "state",
+    "requested_formats",
+    "availability",
+    "revision",
+    "created_at",
+    "updated_at",
+    "font_profile",
+    "error_code",
+    "artifacts"
+  ],
+  "title": "ExportDTO",
+  "type": "object"
+}

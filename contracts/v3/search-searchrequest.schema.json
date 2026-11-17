@@ -1,0 +1,149 @@
+{
+  "$defs": {
+    "PaperLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "metadata_projection",
+            "native_representation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "PaperLocator",
+      "type": "object"
+    },
+    "SearchFilters": {
+      "additionalProperties": false,
+      "properties": {
+        "year_from": {
+          "anyOf": [
+            {
+              "maximum": 2200,
+              "minimum": 1000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year From"
+        },
+        "year_to": {
+          "anyOf": [
+            {
+              "maximum": 2200,
+              "minimum": 1000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year To"
+        }
+      },
+      "title": "SearchFilters",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "q": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Q",
+      "type": "string"
+    },
+    "catalog": {
+      "default": "application_papers",
+      "enum": [
+        "application_papers",
+        "standard_metadata"
+      ],
+      "title": "Catalog",
+      "type": "string"
+    },
+    "mode": {
+      "default": "hybrid",
+      "enum": [
+        "hybrid",
+        "bm25",
+        "dense"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "field": {
+      "default": "text",
+      "enum": [
+        "text",
+        "author",
+        "doi"
+      ],
+      "title": "Field",
+      "type": "string"
+    },
+    "sort": {
+      "default": "relevance",
+      "enum": [
+        "relevance",
+        "year_desc",
+        "title"
+      ],
+      "title": "Sort",
+      "type": "string"
+    },
+    "filters": {
+      "$ref": "#/$defs/SearchFilters"
+    },
+    "page_size": {
+      "default": 10,
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Page Size",
+      "type": "integer"
+    },
+    "candidate_limit": {
+      "default": 100,
+      "maximum": 200,
+      "minimum": 1,
+      "title": "Candidate Limit",
+      "type": "integer"
+    },
+    "ttl_seconds": {
+      "default": 900,
+      "maximum": 1800,
+      "minimum": 30,
+      "title": "Ttl Seconds",
+      "type": "integer"
+    },
+    "selected_papers": {
+      "items": {
+        "$ref": "#/$defs/PaperLocator"
+      },
+      "maxItems": 20,
+      "title": "Selected Papers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "q"
+  ],
+  "title": "SearchRequest",
+  "type": "object"
+}

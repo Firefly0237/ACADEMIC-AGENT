@@ -1,0 +1,106 @@
+name: citequest-core
+
+x-runtime: &runtime
+  init: true
+  read_only: true
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  restart: "no"
+  logging:
+    driver: local
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  web:
+    <<: *runtime
+    image: ${CITEQUEST_CORE_WEB_IMAGE:-citequest-core-web:development}
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: deploy/core/Dockerfile
+      target: web
+    ports: ["${CITEQUEST_CORE_BIND_ADDRESS:-127.0.0.1}:${CITEQUEST_CORE_HTTP_PORT:-18000}:8080"]
+    cpus: 2
+    mem_limit: 1536m
+    pids_limit: 128
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    volumes:
+      - type: bind
+        source: ${CITEQUEST_CORE_CONFIG_DIR:?set_trusted_config_directory}
+        target: /run/core-config
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${CITEQUEST_CORE_WEB_SECRETS_DIR:?set_web_only_secret_directory}
+        target: /run/core-secrets
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${CITEQUEST_CORE_CAS_DIR:?set_existing_application_CAS}
+        target: /opt/citequest/data/runtime-v2-app/blobs
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${CITEQUEST_CORE_TOKENIZER_FILE:?set_qualified_tokenizer_file}
+        target: /opt/citequest/data/runtime-s04/tokenizer/tokenizer.json
+        read_only: true
+        bind: {create_host_path: false}
+    networks: [business, index, identity]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    labels: {cq.owner: citequest, cq.role: web-api, cq.lifecycle: candidate}
+
+  agent:
+    <<: *runtime
+    profiles: [agents]
+    image: ${CITEQUEST_CORE_AGENT_IMAGE:-citequest-core-agent:development}
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: deploy/core/Dockerfile
+      target: agent
+    depends_on:
+      web: {condition: service_healthy}
+    cpus: 2
+    mem_limit: 2g
+    pids_limit: 128
+    stop_signal: SIGTERM
+    stop_grace_period: 1815s
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    volumes:
+      - type: bind
+        source: ${CITEQUEST_CORE_CONFIG_DIR:?set_trusted_config_directory}
+        target: /run/core-config
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${CITEQUEST_CORE_AGENT_SECRETS_DIR:?set_agent_only_secret_directory}
+        target: /run/core-secrets
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${CITEQUEST_CORE_CAS_DIR:?set_existing_application_CAS}
+        target: /opt/citequest/data/runtime-v2-app/blobs
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${CITEQUEST_CORE_TOKENIZER_FILE:?set_qualified_tokenizer_file}
+        target: /opt/citequest/data/runtime-s04/tokenizer/tokenizer.json
+        read_only: true
+        bind: {create_host_path: false}
+    networks: [business, index]
+    labels: {cq.owner: citequest, cq.role: agent-consumer, cq.lifecycle: candidate}
+
+networks:
+  business:
+    external: true
+    name: ${CITEQUEST_CORE_BUSINESS_NETWORK:?set_existing_private_business_network}
+  index:
+    external: true
+    name: ${CITEQUEST_CORE_INDEX_NETWORK:?set_existing_private_index_network}
+  identity:
+    external: true
+    name: ${CITEQUEST_CORE_IDENTITY_NETWORK:?set_existing_identity_egress_network}

@@ -1,0 +1,7 @@
+{
+  "version": "citequest-material-evidence/1",
+  "dsn_file": "/run/core-secrets/business_sqlalchemy_dsn",
+  "cas_root": "/opt/citequest/data/runtime-v2-app/blobs",
+  "retrieval_mode": "native_hybrid",
+  "native_config_file": "/run/core-config/material-native.json"
+}

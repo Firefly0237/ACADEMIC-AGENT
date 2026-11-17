@@ -1,0 +1,39 @@
+.cq-source-navigation {
+  margin: 1.5rem 0;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  border: 1px solid var(--cq-border, #dce5e8);
+  border-radius: 12px;
+  background: var(--cq-surface, #fff);
+  color: var(--cq-text, #172934);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.7;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cq-source-navigation h3 { margin: 0 0 .75rem; font-size: 1.125rem; line-height: 1.6; }
+.cq-source-navigation h4 { margin: 1rem 0 .5rem; font-size: 1rem; line-height: 1.7; }
+.cq-source-navigation p { margin: .65rem 0; }
+.cq-source-navigation .cq-source-scope { font-weight: 600; }
+.cq-source-navigation summary, .cq-source-navigation button { font-family: inherit; font-size: 1rem; line-height: 1.7; }
+.cq-source-navigation summary { cursor: pointer; padding: .5rem 0; }
+.cq-source-details { margin-top: 1rem; border-top: 1px solid var(--cq-border, #dce5e8); padding-top: .5rem; }
+.cq-source-document { margin: .75rem 0; padding: .5rem 1rem; background: var(--cq-bg, #f7f9fa); border-radius: 8px; min-width: 0; }
+.cq-source-document > summary > span { display: block; margin-top: .25rem; color: var(--cq-muted, #46616d); }
+.cq-source-reading-list { list-style: none; padding: 0; margin: 0; }
+.cq-source-reading { padding: .8rem 0; border-top: 1px solid var(--cq-border, #dce5e8); }
+.cq-source-reading-heading { display: flex; gap: .5rem 1rem; justify-content: space-between; align-items: baseline; flex-wrap: wrap; }
+.cq-source-reading-heading > span { color: var(--cq-muted, #46616d); }
+.cq-source-reference { display: flex; gap: .5rem 1rem; align-items: baseline; flex-wrap: wrap; margin: .5rem 0; min-width: 0; }
+.cq-source-reference > .evidence-link { flex: 1 1 220px; min-width: 0; }
+.cq-source-technical { margin-top: 1rem; border-top: 1px solid var(--cq-border, #dce5e8); padding-top: .5rem; }
+.cq-source-table-wrap { width: 100%; max-width: 100%; overflow-x: auto; }
+.cq-source-table-wrap table { width: 100%; min-width: 30rem; font-size: 1rem; }
+.cq-source-table-wrap td { overflow-wrap: anywhere; }
+.cq-source-technical pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 1rem; }
+@media (max-width: 640px) {
+  .cq-source-navigation { padding: 1rem; border-radius: 8px; }
+  .cq-source-document { padding: .5rem .75rem; }
+  .cq-source-navigation button { min-height: 44px; max-width: 100%; white-space: normal; }
+  .cq-source-reference { display: block; }
+}

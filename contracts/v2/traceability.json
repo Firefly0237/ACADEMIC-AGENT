@@ -1,0 +1,202 @@
+{
+  "contract_version": "2.0.0-s02.1",
+  "functions": [
+    {
+      "function_id": "F01",
+      "delivery_stages": [
+        "S06",
+        "S07"
+      ],
+      "contract_objects": [
+        "SearchRequest",
+        "SearchSnapshot",
+        "SearchResponse"
+      ],
+      "test_families": [
+        "search",
+        "filter_pagination_update"
+      ],
+      "state": "planned_not_implemented"
+    },
+    {
+      "function_id": "F02",
+      "delivery_stages": [
+        "S10"
+      ],
+      "contract_objects": [
+        "Evidence",
+        "Task",
+        "Artifact"
+      ],
+      "test_families": [
+        "claim_support_refute"
+      ],
+      "state": "planned_not_implemented"
+    },
+    {
+      "function_id": "F03",
+      "delivery_stages": [
+        "S04",
+        "S06",
+        "S07"
+      ],
+      "contract_objects": [
+        "File",
+        "ParsedDocument",
+        "WorkVersion"
+      ],
+      "test_families": [
+        "upload_recommendation"
+      ],
+      "state": "planned_not_implemented"
+    },
+    {
+      "function_id": "F04",
+      "delivery_stages": [
+        "S09"
+      ],
+      "contract_objects": [
+        "Scope",
+        "Task",
+        "Evidence"
+      ],
+      "test_families": [
+        "single_document_qa"
+      ],
+      "state": "planned_not_implemented"
+    },
+    {
+      "function_id": "F05",
+      "delivery_stages": [
+        "S03",
+        "S07",
+        "S11"
+      ],
+      "contract_objects": [
+        "LibraryItem",
+        "Collection",
+        "Note",
+        "History"
+      ],
+      "test_families": [
+        "library_skill_memory"
+      ],
+      "state": "planned_not_implemented"
+    },
+    {
+      "function_id": "F06",
+      "delivery_stages": [
+        "S09",
+        "S11"
+      ],
+      "contract_objects": [
+        "Scope",
+        "Artifact",
+        "Evidence"
+      ],
+      "test_families": [
+        "multidocument_summary_comparison"
+      ],
+      "state": "planned_not_implemented"
+    },
+    {
+      "function_id": "F07",
+      "delivery_stages": [
+        "S12",
+        "S13"
+      ],
+      "contract_objects": [
+        "ResearchBrief",
+        "Task",
+        "Artifact",
+        "Citation"
+      ],
+      "test_families": [
+        "formal_proposal"
+      ],
+      "state": "planned_not_implemented"
+    },
+    {
+      "function_id": "F08",
+      "delivery_stages": [
+        "S12"
+      ],
+      "contract_objects": [
+        "ResearchBrief",
+        "Artifact",
+        "Evidence"
+      ],
+      "test_families": [
+        "formal_proposal"
+      ],
+      "state": "planned_not_implemented"
+    },
+    {
+      "function_id": "F09",
+      "delivery_stages": [
+        "S08",
+        "S09",
+        "S12"
+      ],
+      "contract_objects": [
+        "Session",
+        "Message",
+        "Task",
+        "Run"
+      ],
+      "test_families": [
+        "multiturn_resume",
+        "security_budget_fault"
+      ],
+      "state": "planned_not_implemented"
+    },
+    {
+      "function_id": "F10",
+      "delivery_stages": [
+        "S08",
+        "S11"
+      ],
+      "contract_objects": [
+        "Skill",
+        "Memory"
+      ],
+      "test_families": [
+        "library_skill_memory",
+        "security_budget_fault"
+      ],
+      "state": "planned_not_implemented"
+    },
+    {
+      "function_id": "F11",
+      "delivery_stages": [
+        "S05"
+      ],
+      "contract_objects": [
+        "IngestionJob",
+        "Outbox",
+        "IndexGeneration"
+      ],
+      "test_families": [
+        "filter_pagination_update"
+      ],
+      "state": "planned_not_implemented"
+    },
+    {
+      "function_id": "F12",
+      "delivery_stages": [
+        "S08",
+        "S15"
+      ],
+      "contract_objects": [
+        "Event",
+        "Attempt",
+        "Reservation"
+      ],
+      "test_families": [
+        "multiturn_resume",
+        "security_budget_fault"
+      ],
+      "state": "planned_not_implemented"
+    }
+  ]
+}

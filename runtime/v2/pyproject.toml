@@ -1,0 +1,42 @@
+[project]
+name = "citequest-v2-validation"
+version = "0.2.1"
+description = "Isolated CiteQuest v2 contract and feasibility environment"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "langgraph==1.2.19",
+  "langgraph-checkpoint-postgres==3.2.0",
+  "langchain==1.4.8",
+  "deepagents==0.7.32",
+  "langchain-mcp-adapters==0.3.2",
+  "mcp==1.29.0",
+  "pymilvus==2.6.17",
+  "psutil==7.2.2",
+  "httpx==0.28.1",
+  "psycopg[binary,pool]==3.3.8",
+  "sqlalchemy==2.1.8",
+  "alembic==1.20.1",
+  "docling==2.146.0",
+  "pypdf==6.21.4",
+  "docxtpl==0.20.2",
+  "docxcompose==2.2.0",
+  "fastapi==0.162.0",
+  "jsonschema==4.26.0",
+  "openapi-spec-validator==0.9.0",
+  "reportlab>=4.0,<5",
+  "pypandoc_binary>=1.15,<2",
+  "pytest>=8.3,<10",
+  "ruff>=0.7,<1",
+]
+
+[tool.uv]
+environments = ["sys_platform == 'win32'"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }

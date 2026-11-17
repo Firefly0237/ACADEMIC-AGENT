@@ -1,0 +1,47 @@
+{
+  "additionalProperties": false,
+  "description": "Trusted lifetime development policy; no caller input, hidden reset or daily window.",
+  "properties": {
+    "mode": {
+      "enum": [
+        "bounded",
+        "development_aggregate_unlimited"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "owner_cash_ncny": {
+      "default": 100000000000,
+      "maximum": 100000000000,
+      "minimum": 1,
+      "title": "Owner Cash Ncny",
+      "type": "integer"
+    },
+    "project_cash_ncny": {
+      "default": 500000000000,
+      "maximum": 500000000000,
+      "minimum": 1,
+      "title": "Project Cash Ncny",
+      "type": "integer"
+    },
+    "owner_active_tasks": {
+      "default": 2,
+      "maximum": 2,
+      "minimum": 1,
+      "title": "Owner Active Tasks",
+      "type": "integer"
+    },
+    "owner_total_tasks": {
+      "default": 200,
+      "maximum": 200,
+      "minimum": 1,
+      "title": "Owner Total Tasks",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "mode"
+  ],
+  "title": "RuntimeLimits",
+  "type": "object"
+}

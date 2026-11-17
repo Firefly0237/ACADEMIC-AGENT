@@ -1,0 +1,53 @@
+#!/bin/bash
+set -euo pipefail
+export DOCKER_CONFIG=/var/lib/citequest/docker
+%{ if role_name == "parser" ~}
+# A parser takes one immutable request and exits. Its fixed trusted host broker
+# owns dispatch, quotas, physical-stop observation and the persistent journal.
+# Do not start the parser image as a daemon or give it this VM's network.
+echo 'parser_job_host_prepared_use_fixed_one_file_broker' >&2
+exit 64
+%{ else ~}
+# Wait only before admission; restarting a transport does not kill active jobs.
+proxy_ready=false
+for attempt in $(seq 1 60); do
+  if timeout 2 /bin/bash -c 'true </dev/tcp/127.0.0.1/5432' 2>/dev/null; then
+    proxy_ready=true
+    break
+  fi
+  sleep 1
+done
+test "$proxy_ready" = true
+%{ if role_name == "export" ~}
+socket_group=$(stat -c %g /var/run/docker.sock)
+install -d -m 0750 -o 10001 -g 10001 /var/lib/citequest/state/export-job-spool
+install -d -m 0750 -o 10001 -g 10001 /var/lib/citequest/state/renderer-docker-config
+%{ endif ~}
+exec docker run --rm --name=cq-${role_name} --init \
+  --network=host --read-only --user=10001:10001 \
+  --cap-drop=ALL --security-opt=no-new-privileges \
+  --cpus='${role.cpus}' --memory='${role.memory_mb}m' --pids-limit=256 \
+  --log-driver=local --log-opt=max-size=10m --log-opt=max-file=3 \
+  --tmpfs=/tmp:rw,nosuid,nodev,size=256m,mode=1777 \
+  --mount=type=bind,src=/run/citequest/config,dst=/run/core-config,readonly \
+  --mount=type=bind,src=/run/citequest/config,dst=/run/citequest/config,readonly \
+  --mount=type=bind,src=/run/citequest/secrets,dst=/run/core-secrets,readonly \
+  --mount=type=bind,src=/run/citequest/secrets,dst=/run/citequest/secrets,readonly \
+  --mount=type=bind,src=/run/citequest/secrets,dst=/run/secrets,readonly \
+  --mount=type=bind,src=/run/citequest/config/tokenizer.json,dst=/opt/citequest/data/runtime-s04/tokenizer/tokenizer.json,readonly \
+  --mount=type=volume,src=${source_volume},dst=/opt/citequest/data/runtime-v2-app/blobs${contains(["web", "updater"], role_name) ? "" : ",readonly"} \
+%{ if role_name != "web" ~}
+  --mount=type=bind,src=/var/lib/citequest/state,dst=/var/lib/citequest/state \
+%{ else ~}
+  --tmpfs=/var/lib/citequest/state:rw,nosuid,nodev,size=256m,uid=10001,gid=10001,mode=0750 \
+%{ endif ~}
+%{ if anytrue([for path in keys(role.config_files) : startswith(path, "export-release/")]) ~}
+  --mount=type=bind,src=/run/citequest/config/export-release,dst=/run/export-release,readonly \
+%{ endif ~}
+%{ if role_name == "export" ~}
+  --group-add="$socket_group" \
+  --mount=type=bind,src=/usr/bin/docker,dst=/usr/bin/docker,readonly \
+  --mount=type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock \
+%{ endif ~}
+  '${role.image}'%{ for arg in role.command } '${arg}'%{ endfor }
+%{ endif ~}

@@ -1,0 +1,239 @@
+{
+  "contract_version": "2.0.0-s02.1",
+  "transport_policy": "Same schemas/service shared by HTTP and MCP. MCP success requires real model call -> MCP client/server -> service -> matching original model call_id result; service direct call is not MCP.",
+  "registration": "explicit allowlist, no document or Skill may register new tools",
+  "tools": [
+    {
+      "name": "search_papers",
+      "description": "Search only authorized pinned corpus",
+      "input_schema": {
+        "$ref": "#/$defs/SearchRequest"
+      },
+      "state": "planned",
+      "effect": "read",
+      "admission": [
+        "schema",
+        "owner_project_scope",
+        "task_scope",
+        "current_acl",
+        "remaining_tool_attempts"
+      ],
+      "required_trace": [
+        "task_id",
+        "run_id",
+        "attempt_id",
+        "model_call_id",
+        "mcp_request_id",
+        "arguments_sha256",
+        "result_sha256",
+        "transport",
+        "elapsed_ms",
+        "status"
+      ],
+      "result_contract": "artifact reference plus source versions, coverage, missing_evidence and warnings; no silent truncation",
+      "write_authority": "authorized_task_scope"
+    },
+    {
+      "name": "get_paper",
+      "description": "Fetch one authorized immutable paper version",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "version_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "version_id"
+        ],
+        "additionalProperties": false
+      },
+      "state": "planned",
+      "effect": "read",
+      "admission": [
+        "schema",
+        "owner_project_scope",
+        "task_scope",
+        "current_acl",
+        "remaining_tool_attempts"
+      ],
+      "required_trace": [
+        "task_id",
+        "run_id",
+        "attempt_id",
+        "model_call_id",
+        "mcp_request_id",
+        "arguments_sha256",
+        "result_sha256",
+        "transport",
+        "elapsed_ms",
+        "status"
+      ],
+      "result_contract": "artifact reference plus source versions, coverage, missing_evidence and warnings; no silent truncation",
+      "write_authority": "authorized_task_scope"
+    },
+    {
+      "name": "read_evidence",
+      "description": "Read bounded original text with hash and locators",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          "max_characters": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20000
+          }
+        },
+        "required": [
+          "evidence_ids",
+          "max_characters"
+        ],
+        "additionalProperties": false
+      },
+      "state": "planned",
+      "effect": "read",
+      "admission": [
+        "schema",
+        "owner_project_scope",
+        "task_scope",
+        "current_acl",
+        "remaining_tool_attempts"
+      ],
+      "required_trace": [
+        "task_id",
+        "run_id",
+        "attempt_id",
+        "model_call_id",
+        "mcp_request_id",
+        "arguments_sha256",
+        "result_sha256",
+        "transport",
+        "elapsed_ms",
+        "status"
+      ],
+      "result_contract": "artifact reference plus source versions, coverage, missing_evidence and warnings; no silent truncation",
+      "write_authority": "authorized_task_scope"
+    },
+    {
+      "name": "recommend_papers",
+      "description": "Recommend papers excluding source and duplicate versions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "version_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "mode": {
+            "enum": [
+              "title_abstract",
+              "fulltext"
+            ]
+          }
+        },
+        "required": [
+          "version_id",
+          "limit",
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "state": "planned",
+      "effect": "read",
+      "admission": [
+        "schema",
+        "owner_project_scope",
+        "task_scope",
+        "current_acl",
+        "remaining_tool_attempts"
+      ],
+      "required_trace": [
+        "task_id",
+        "run_id",
+        "attempt_id",
+        "model_call_id",
+        "mcp_request_id",
+        "arguments_sha256",
+        "result_sha256",
+        "transport",
+        "elapsed_ms",
+        "status"
+      ],
+      "result_contract": "artifact reference plus source versions, coverage, missing_evidence and warnings; no silent truncation",
+      "write_authority": "authorized_task_scope"
+    },
+    {
+      "name": "save_library_item",
+      "description": "Reversible explicit user-requested save",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "work_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "collection_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "work_id",
+          "collection_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      },
+      "state": "planned",
+      "effect": "reversible_write",
+      "admission": [
+        "schema",
+        "owner_project_scope",
+        "task_scope",
+        "current_acl",
+        "remaining_tool_attempts"
+      ],
+      "required_trace": [
+        "task_id",
+        "run_id",
+        "attempt_id",
+        "model_call_id",
+        "mcp_request_id",
+        "arguments_sha256",
+        "result_sha256",
+        "transport",
+        "elapsed_ms",
+        "status"
+      ],
+      "result_contract": "artifact reference plus source versions, coverage, missing_evidence and warnings; no silent truncation",
+      "write_authority": "explicit_user_action"
+    }
+  ]
+}

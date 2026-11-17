@@ -1,0 +1,387 @@
+{
+  "$defs": {
+    "PaperLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "metadata_projection",
+            "native_representation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "PaperLocator",
+      "type": "object"
+    },
+    "PaperSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "paper": {
+          "$ref": "#/$defs/PaperLocator"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        },
+        "abstract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Abstract"
+        },
+        "authors": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Authors"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Year"
+        },
+        "work_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Work Id"
+        },
+        "work_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Work Version Id"
+        },
+        "coverage": {
+          "enum": [
+            "metadata",
+            "native_literal"
+          ],
+          "title": "Coverage",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceCitation"
+        },
+        "source_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Url"
+        },
+        "pdf_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pdf Url"
+        },
+        "metadata_revision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metadata Revision"
+        }
+      },
+      "required": [
+        "paper",
+        "title",
+        "abstract",
+        "authors",
+        "year",
+        "work_id",
+        "work_version_id",
+        "coverage",
+        "source"
+      ],
+      "title": "PaperSummary",
+      "type": "object"
+    },
+    "SearchHit": {
+      "additionalProperties": false,
+      "properties": {
+        "rank": {
+          "title": "Rank",
+          "type": "integer"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        },
+        "paper": {
+          "$ref": "#/$defs/PaperSummary"
+        },
+        "snippet": {
+          "title": "Snippet",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "rank",
+        "score",
+        "paper",
+        "snippet",
+        "evidence_refs"
+      ],
+      "title": "SearchHit",
+      "type": "object"
+    },
+    "SourceCitation": {
+      "additionalProperties": false,
+      "properties": {
+        "source_namespace": {
+          "title": "Source Namespace",
+          "type": "string"
+        },
+        "native_id": {
+          "title": "Native Id",
+          "type": "string"
+        },
+        "source_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Revision"
+        },
+        "projection_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Projection Sha256",
+          "type": "string"
+        },
+        "source_pointer_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Pointer Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_namespace",
+        "native_id",
+        "source_revision",
+        "projection_sha256",
+        "source_pointer_sha256"
+      ],
+      "title": "SourceCitation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "snapshot_id": {
+      "format": "uuid",
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "generation_id": {
+      "format": "uuid",
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "epoch": {
+      "title": "Epoch",
+      "type": "integer"
+    },
+    "query": {
+      "title": "Query",
+      "type": "string"
+    },
+    "catalog": {
+      "enum": [
+        "application_papers",
+        "standard_metadata"
+      ],
+      "title": "Catalog",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "hybrid",
+        "bm25",
+        "dense"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "retrieval_method": {
+      "enum": [
+        "native_bm25",
+        "native_dense",
+        "native_rrf",
+        "structured_doi",
+        "structured_author"
+      ],
+      "title": "Retrieval Method",
+      "type": "string"
+    },
+    "sort": {
+      "enum": [
+        "relevance",
+        "year_desc",
+        "title"
+      ],
+      "title": "Sort",
+      "type": "string"
+    },
+    "candidate_scope": {
+      "const": "bounded_retrieval_candidates",
+      "default": "bounded_retrieval_candidates",
+      "title": "Candidate Scope",
+      "type": "string"
+    },
+    "candidate_limit": {
+      "title": "Candidate Limit",
+      "type": "integer"
+    },
+    "candidate_count": {
+      "title": "Candidate Count",
+      "type": "integer"
+    },
+    "facets": {
+      "additionalProperties": {
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "type": "object"
+      },
+      "title": "Facets",
+      "type": "object"
+    },
+    "masked_since_search": {
+      "title": "Masked Since Search",
+      "type": "integer"
+    },
+    "results": {
+      "items": {
+        "$ref": "#/$defs/SearchHit"
+      },
+      "title": "Results",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "generation_profile_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Generation Profile Sha256",
+      "type": "string"
+    },
+    "model_calls": {
+      "const": 0,
+      "default": 0,
+      "title": "Model Calls",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "snapshot_id",
+    "generation_id",
+    "epoch",
+    "query",
+    "catalog",
+    "mode",
+    "retrieval_method",
+    "sort",
+    "candidate_limit",
+    "candidate_count",
+    "facets",
+    "masked_since_search",
+    "results",
+    "next_cursor",
+    "expires_at",
+    "generation_profile_sha256"
+  ],
+  "title": "SearchPage",
+  "type": "object"
+}

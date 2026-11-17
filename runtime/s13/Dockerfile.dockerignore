@@ -1,0 +1,15 @@
+**
+!src/
+!src/citequest/
+!src/citequest/**
+!assets/
+!assets/export/
+!assets/export/**
+!scripts/
+!scripts/s13/
+!scripts/s13/*.py
+!runtime/
+!runtime/s13/
+!runtime/s13/**
+**/__pycache__/
+**/*.pyc

@@ -1,0 +1,10 @@
+{
+  "schema_version": "citequest-publication-backend-maintenance/1",
+  "phase": "bind",
+  "business_dsn_file": "/run/core-secrets/migrator-business-dsn",
+  "generation_id": "00000000-0000-0000-0000-000000000006",
+  "backend_profile_file": "/run/core-config/adopted-backend-profile.json",
+  "adoption_file": null,
+  "quality_report_file": null,
+  "approval_file": null
+}

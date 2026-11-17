@@ -1,0 +1,13 @@
+*.md text eol=lf
+/src/** -text
+/scripts/** -text
+/contracts/** -text
+/migrations/** -text
+/runtime/** -text
+/assets/** -text
+/uv.lock -text
+/pyproject.toml -text
+/tools/** text eol=lf
+/tests/engineering/** text eol=lf
+/deploy/** text eol=lf
+/.github/** text eol=lf

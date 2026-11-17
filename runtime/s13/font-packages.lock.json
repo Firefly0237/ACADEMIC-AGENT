@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "name": "fonts-arphic-ukai",
+      "version": "0.2.20080216.2-5",
+      "filename": "fonts-arphic-ukai_0.2.20080216.2-5_all.deb",
+      "url": "https://deb.debian.org/debian/pool/main/f/fonts-arphic-ukai/fonts-arphic-ukai_0.2.20080216.2-5_all.deb",
+      "sha256": "b9db73184895b067f7911f9adbf3b137df99c2d4ec5425b4ad779a9834b7110b",
+      "primary_checksum_source": "https://packages.debian.org/trixie/all/fonts-arphic-ukai/download"
+    },
+    {
+      "name": "fonts-arphic-uming",
+      "version": "0.2.20080216.2-11",
+      "filename": "fonts-arphic-uming_0.2.20080216.2-11_all.deb",
+      "url": "https://deb.debian.org/debian/pool/main/f/fonts-arphic-uming/fonts-arphic-uming_0.2.20080216.2-11_all.deb",
+      "sha256": "2676b21b90df94f23418610291b71b43720c95cdccb420b97ab56edfd3ce4cf5",
+      "primary_checksum_source": "https://packages.debian.org/trixie/all/fonts-arphic-uming/download"
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "$defs": {
+    "PlanClaimReview": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "pattern": "^C[1-9][0-9]?$",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "faithful_normalization": {
+          "title": "Faithful Normalization",
+          "type": "boolean"
+        },
+        "no_new_facts_or_quantifiers": {
+          "title": "No New Facts Or Quantifiers",
+          "type": "boolean"
+        },
+        "conditions_preserved": {
+          "title": "Conditions Preserved",
+          "type": "boolean"
+        },
+        "explanation": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Explanation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "faithful_normalization",
+        "no_new_facts_or_quantifiers",
+        "conditions_preserved",
+        "explanation"
+      ],
+      "title": "PlanClaimReview",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/PlanClaimReview"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Claims",
+      "type": "array"
+    },
+    "all_user_requests_accounted_for": {
+      "title": "All User Requests Accounted For",
+      "type": "boolean"
+    },
+    "latest_turn_and_explicit_direction_respected": {
+      "title": "Latest Turn And Explicit Direction Respected",
+      "type": "boolean"
+    },
+    "unresolved_reference": {
+      "title": "Unresolved Reference",
+      "type": "boolean"
+    },
+    "explanation": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Explanation",
+      "type": "string"
+    }
+  },
+  "required": [
+    "claims",
+    "all_user_requests_accounted_for",
+    "latest_turn_and_explicit_direction_respected",
+    "unresolved_reference",
+    "explanation"
+  ],
+  "title": "PlanReview",
+  "type": "object"
+}

@@ -1,0 +1,88 @@
+{
+  "name_prefix": "citequest-prod",
+  "zones": ["asia-east1-a", "asia-east1-b"],
+  "cos_image": "projects/cos-cloud/global/images/REPLACE_WITH_PINNED_COS_IMAGE",
+  "bootstrap_image": "gcr.io/google.com/cloudsdktool/google-cloud-cli@sha256:REPLACE_WITH_VERIFIED_DIGEST",
+  "sql_proxy_image": "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.27.0@sha256:REPLACE_WITH_VERIFIED_DIGEST",
+  "config_bucket": "replace-with-private-config-bucket",
+  "artifact_registry_repositories": [
+    {"project": "replace-project", "location": "asia-east1", "repository": "citequest"}
+  ],
+  "domains": ["research.example.org"],
+  "web_replicas": 2,
+  "initialize_blank_state_disks": false,
+  "source_cas_nfs": {"address": "10.40.0.2", "export_path": "/citequest_sources"},
+  "roles": {
+    "web": {
+      "image": "asia-east1-docker.pkg.dev/replace-project/citequest/web@sha256:REPLACE_WITH_VERIFIED_DIGEST",
+      "machine_type": "e2-standard-2", "cpus": 2, "memory_mb": 1536,
+      "config_files": {
+        "web.json": {"object": "releases/RELEASE/web.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "search.json": {"object": "releases/RELEASE/search.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "api.json": {"object": "releases/RELEASE/api.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "material.json": {"object": "releases/RELEASE/material.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "tokenizer.json": {"object": "releases/RELEASE/tokenizer.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"}
+      },
+      "secret_files": {
+        "oidc.json": "projects/replace-project/secrets/web-oidc/versions/1",
+        "business_sqlalchemy_dsn": "projects/replace-project/secrets/web-business-dsn/versions/1",
+        "cursor_key": "projects/replace-project/secrets/cursor-key/versions/1"
+      }
+    },
+    "agent": {
+      "image": "asia-east1-docker.pkg.dev/replace-project/citequest/agent@sha256:REPLACE_WITH_VERIFIED_DIGEST",
+      "zone": "asia-east1-a", "machine_type": "e2-standard-2", "cpus": 2, "memory_mb": 2048, "state_disk_gb": 30,
+      "config_files": {
+        "worker.json": {"object": "releases/RELEASE/worker.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "search.json": {"object": "releases/RELEASE/search.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "material.json": {"object": "releases/RELEASE/material.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "tokenizer.json": {"object": "releases/RELEASE/tokenizer.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"}
+      },
+      "secret_files": {
+        "agent_business_dsn": "projects/replace-project/secrets/agent-business-dsn/versions/1",
+        "checkpoint_dsn": "projects/replace-project/secrets/agent-checkpoint-dsn/versions/1",
+        "memory_dsn": "projects/replace-project/secrets/agent-memory-dsn/versions/1",
+        "model-key": "projects/replace-project/secrets/model-key/versions/1",
+        "cursor_key": "projects/replace-project/secrets/cursor-key/versions/1"
+      }
+    },
+    "parser": {
+      "image": "asia-east1-docker.pkg.dev/replace-project/citequest/parser@sha256:REPLACE_WITH_VERIFIED_DIGEST",
+      "zone": "asia-east1-b", "machine_type": "e2-standard-4", "cpus": 2, "memory_mb": 4096, "state_disk_gb": 100,
+      "config_files": {}, "secret_files": {}
+    },
+    "updater": {
+      "image": "asia-east1-docker.pkg.dev/replace-project/citequest/updater@sha256:REPLACE_WITH_VERIFIED_DIGEST",
+      "zone": "asia-east1-a", "machine_type": "e2-standard-2", "cpus": 2, "memory_mb": 2048, "state_disk_gb": 30,
+      "command": ["python", "-m", "citequest.updates_v2.broker", "--config", "/run/citequest/config/source-broker.json"],
+      "config_files": {
+        "source-broker.json": {"object": "releases/RELEASE/source-broker.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "tokenizer.json": {"object": "releases/RELEASE/tokenizer.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"}
+      },
+      "secret_files": {"source_business_dsn": "projects/replace-project/secrets/source-business-dsn/versions/1"}
+    },
+    "export": {
+      "image": "asia-east1-docker.pkg.dev/replace-project/citequest/export-worker@sha256:REPLACE_WITH_VERIFIED_DIGEST",
+      "zone": "asia-east1-b", "machine_type": "e2-standard-4", "cpus": 2, "memory_mb": 3072, "state_disk_gb": 100,
+      "config_files": {
+        "export-worker.json": {"object": "releases/RELEASE/export-worker.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "search.json": {"object": "releases/RELEASE/search.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "material.json": {"object": "releases/RELEASE/material.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "tokenizer.json": {"object": "releases/RELEASE/tokenizer.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "export-release/renderer-image.tar": {"object": "releases/RELEASE/renderer-image.tar", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "export-release/release-profile.json": {"object": "releases/RELEASE/release-profile.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "export-release/toolchain-identity.json": {"object": "releases/RELEASE/toolchain-identity.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "export-release/capacity-certification.json": {"object": "releases/RELEASE/capacity-certification.json", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "export-release/assets/export/sjtu-proposal.docx": {"object": "releases/RELEASE/assets/export/sjtu-proposal.docx", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"},
+        "export-release/assets/export/harvard.csl": {"object": "releases/RELEASE/assets/export/harvard.csl", "generation": "REPLACE_WITH_GENERATION", "sha256": "REPLACE_WITH_SHA256"}
+      },
+      "renderer_archive": {"config_file": "export-release/renderer-image.tar", "image_id": "sha256:REPLACE_WITH_RENDERER_DOCKER_IMAGE_ID"},
+      "secret_files": {
+        "agent_business_dsn": "projects/replace-project/secrets/export-business-dsn/versions/1",
+        "checkpoint_dsn": "projects/replace-project/secrets/export-checkpoint-dsn/versions/1",
+        "memory_dsn": "projects/replace-project/secrets/export-memory-dsn/versions/1",
+        "cursor_key": "projects/replace-project/secrets/cursor-key/versions/1"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "version": "citequest-tei-rerank/1",
+  "deployment_kind": "self_hosted",
+  "base_url": "http://tei-reranker:8080",
+  "expected_model_id": "Alibaba-NLP/gte-multilingual-reranker-base",
+  "expected_model_sha": "REPLACE_WITH_DEPLOYED_IMMUTABLE_MODEL_COMMIT",
+  "expected_tei_version": "1.9.4",
+  "minimum_max_input_length": 8192,
+  "maximum_candidates": 20,
+  "maximum_request_bytes": 131072,
+  "timeout_seconds": 8,
+  "truncate": false,
+  "raw_scores": true,
+  "return_text": false
+}

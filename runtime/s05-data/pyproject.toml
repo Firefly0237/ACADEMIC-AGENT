@@ -1,0 +1,8 @@
+[project]
+name = "citequest-s05-source-metadata"
+version = "0.5.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["acl-anthology==1.3.3", "httpx==0.28.1"]
+
+[tool.uv]
+environments = ["sys_platform == 'win32'"]

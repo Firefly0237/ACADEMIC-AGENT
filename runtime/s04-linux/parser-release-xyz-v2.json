@@ -1,0 +1,22 @@
+{
+  "schema_version": "citequest-parser-runtime-release/2",
+  "status": "candidate_linux_controls_passed_pending_product_parse",
+  "id": "linux-parser-current-document-xyz/2",
+  "image_id": "sha256:2c10f043b9ac4e709613dfcbd7149f2723364ca993a044a8a8a74691b82c9cfd",
+  "base_image_id": "sha256:b95e7674f7a8e63edc8d7f8e0afec4b53de8738c34146dc4c7b934a5ae4f22ae",
+  "source_manifest_file": "runtime/s04-linux/parser-xyz-v2-source-manifest.json",
+  "source_manifest_sha256": "7dfcbcdb750aa2fa7f34a59b1605cfe4cf9228c693d71193325538692e9c4092",
+  "parser_profile_relative": "runtime/s04-linux/worker-profile-xyz-v2.json",
+  "parser_profile_sha256": "2d110a7d62385a01dc1e947235e9900b58dada573bf2d2bde56077415cd395ba",
+  "operator_launcher_sha256": "b3e5c5660214beb3899295a4ce6e83df6adf2c6069e3bc0eed35fcb0f0796e8f",
+  "operator_consumer_sha256": "570eb76b1215602aa7a0dacf83734760e561af37c6e4c5ebd8a4fc659cf3255e",
+  "worker_entry_sha256": "e627361e2d85997d56d1277540ea41f045372af7ed8285e5b36bedfda6142f58",
+  "pdf_navigation_sha256": "4109daa73bb2d2b2cd2668bdc0c1a71f248924b3883c3089dd22ece8b27ddb57",
+  "dependencies_changed": false,
+  "resource_limits_changed": false,
+  "accepted_open_action_policy": "inert same-reader current-page Fit/FitB or exact XYZ only; no chains or remote/executable actions",
+  "linux_controls": "reports/stages/v3/S12-material-inputs/parser-linux-controls-r1/verification.json",
+  "host_controls": "reports/stages/v3/S12-material-inputs/pdf-navigation-controls-r2/pytest.xml",
+  "old_failed_files_reset_or_retried": false,
+  "model_API_calls": 0
+}

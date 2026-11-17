@@ -1,0 +1,68 @@
+{
+  "at": "2026-11-04T12:03:27.344774+00:00",
+  "status": "pass",
+  "scope": "Public local CPU layout Heron and TableFormer FAST only; OCR/formula/VLM not downloaded or enabled",
+  "models": [
+    {
+      "repo_id": "docling-project/docling-layout-heron",
+      "requested_revision": "main",
+      "resolved_revision": "8f39ad3c0b4c58e9c2d2c84a38465abf757272d8",
+      "authentication": "none; token=False",
+      "selected_patterns": [
+        "*.json",
+        "*.safetensors"
+      ],
+      "expected_bytes": 171662708,
+      "selected_files": [
+        "config.json",
+        "model.safetensors",
+        "preprocessor_config.json"
+      ],
+      "status": "pass",
+      "files": [
+        {
+          "path": "data/runtime-v2/docling-models/docling-project--docling-layout-heron/config.json",
+          "bytes": 3268,
+          "sha256": "fdea30805ce2f5666b147fca941dcdd27ad468e27d6ed21902207d3da056a97d"
+        },
+        {
+          "path": "data/runtime-v2/docling-models/docling-project--docling-layout-heron/model.safetensors",
+          "bytes": 171658996,
+          "sha256": "00333a43451945aaf89db8ca9c0a17e75d1537c17db60fdb91aa95f4c7929e0c"
+        },
+        {
+          "path": "data/runtime-v2/docling-models/docling-project--docling-layout-heron/preprocessor_config.json",
+          "bytes": 444,
+          "sha256": "cd38cd59999e7a95d68e487fbe5132df3d4e5c32a0836add57e6126ba0c4eaf1"
+        }
+      ]
+    },
+    {
+      "repo_id": "docling-project/docling-models",
+      "requested_revision": "v2.3.0",
+      "resolved_revision": "fc0f2d45e2218ea24bce5045f58a389aed16dc23",
+      "authentication": "none; token=False",
+      "selected_patterns": [
+        "model_artifacts/tableformer/fast/*"
+      ],
+      "expected_bytes": 145460336,
+      "selected_files": [
+        "model_artifacts/tableformer/fast/tableformer_fast.safetensors",
+        "model_artifacts/tableformer/fast/tm_config.json"
+      ],
+      "status": "pass",
+      "files": [
+        {
+          "path": "data/runtime-v2/docling-models/docling-project--docling-models/model_artifacts/tableformer/fast/tableformer_fast.safetensors",
+          "bytes": 145453276,
+          "sha256": "3119563aab5a7c96fda4d621119b63fd8806272b86c30936d15507616422f718"
+        },
+        {
+          "path": "data/runtime-v2/docling-models/docling-project--docling-models/model_artifacts/tableformer/fast/tm_config.json",
+          "bytes": 7060,
+          "sha256": "dca6762508dddfae6d57d6cb4ef822c6000119dff0f3b6489db7413118c2622a"
+        }
+      ]
+    }
+  ]
+}

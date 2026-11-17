@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "docker_config": null,
+  "stacks": [
+    {
+      "id": "core",
+      "project": "citequest-core",
+      "compose": "deploy/core/compose.yaml",
+      "services": [
+        "web",
+        "agent"
+      ],
+      "tier": "application",
+      "lifecycle": true,
+      "stop_timeout_seconds": 1815,
+      "purpose": "Web API and durable Agent workers"
+    }
+  ],
+  "runtimes": [
+    {
+      "id": "web",
+      "project": "runtime/s07/pyproject.toml",
+      "lock": "runtime/s07/uv.lock",
+      "requirements": "runtime/s07/requirements.txt",
+      "dockerfile": "deploy/core/Dockerfile",
+      "entrypoint": "python -m citequest.web_v3.main --config /run/core-config/web.json"
+    },
+    {
+      "id": "agent",
+      "project": "runtime/s08/pyproject.toml",
+      "lock": "runtime/s08/uv.lock",
+      "requirements": "runtime/s08/requirements.txt",
+      "dockerfile": "deploy/core/Dockerfile",
+      "entrypoint": "python -m citequest.agents_v3.worker --config /run/core-config/worker.json --drain-on-signal"
+    },
+    {
+      "id": "parser",
+      "project": "runtime/s04-linux/pyproject.toml",
+      "lock": "runtime/s04-linux/uv.lock",
+      "requirements": "runtime/s04-linux/requirements.txt",
+      "dockerfile": "runtime/s04-linux/Dockerfile",
+      "entrypoint": "python -S scripts/s04_linux/worker_entry.py"
+    },
+    {
+      "id": "export-renderer",
+      "project": "runtime/s13/pyproject.toml",
+      "lock": "runtime/s13/uv.lock",
+      "requirements": "runtime/s13/requirements.txt",
+      "dockerfile": "runtime/s13/Dockerfile",
+      "entrypoint": "python scripts/s13/bundle_entry.py"
+    }
+  ]
+}
